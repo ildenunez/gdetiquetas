@@ -27,3 +27,9 @@ export interface OverlayConfig {
   cropRight: number;
   rotation: number;
 }
+
+export interface RawToken {
+  text: string;
+  lineIndex: number;
+  tokenIndex: number;
+}

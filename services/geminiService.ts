@@ -6,22 +6,17 @@ export interface LabelExtractionResult {
   packageInfo: string | null;
 }
 
-// Función para obtener la instancia de AI de forma segura
-const getAi = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    console.warn("API_KEY no detectada en process.env");
-  }
-  return new GoogleGenAI({ apiKey: apiKey || '' });
-};
+// Recommended model for general extraction tasks
+const MODEL_NAME = 'gemini-3-flash-preview';
 
 export const extractLabelDetails = async (base64Image: string): Promise<LabelExtractionResult> => {
   const base64Data = base64Image.split(',')[1] || base64Image;
-  const ai = getAi();
+  // Initialize right before call to ensure up-to-date config if necessary
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: MODEL_NAME,
       contents: {
         parts: [
           {
@@ -49,7 +44,9 @@ export const extractLabelDetails = async (base64Image: string): Promise<LabelExt
       }
     });
 
-    return JSON.parse(response.text || '{}');
+    // Access .text property directly as per SDK guidelines
+    const text = response.text || '{}';
+    return JSON.parse(text);
   } catch (error) {
     console.error("Gemini Extraction Error:", error);
     return { amazonRef: null, packageInfo: null };
@@ -58,11 +55,12 @@ export const extractLabelDetails = async (base64Image: string): Promise<LabelExt
 
 export const extractMuelleDataFromImage = async (base64Image: string): Promise<{ amazonRef: string; orderNumber: string }[]> => {
   const base64Data = base64Image.split(',')[1] || base64Image;
-  const ai = getAi();
+  // Initialize right before call as recommended
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: MODEL_NAME,
       contents: {
         parts: [
           {
@@ -92,6 +90,7 @@ export const extractMuelleDataFromImage = async (base64Image: string): Promise<{
       }
     });
 
+    // Access .text property directly
     const text = response.text || "[]";
     return JSON.parse(text.trim());
   } catch (error) {
