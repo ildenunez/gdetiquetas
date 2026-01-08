@@ -2,14 +2,17 @@
 import { MuelleData } from '../types';
 
 /**
- * Intenta extraer el número de referencia de Amazon (FBA...) del texto de una etiqueta
+ * Intenta extraer el número de referencia de Amazon (FBA...) del texto
  */
 export const parseAmazonLabelLocal = (text: string): { amazonRef: string | null; packageInfo: string | null } => {
-  // Buscar FBA o referencias largas comunes de Amazon
-  const fbaMatch = text.match(/FBA[A-Z0-9]+/i) || text.match(/\b[A-Z0-9]{10,}\b/);
+  if (!text) return { amazonRef: null, packageInfo: null };
+
+  // Buscar FBA o referencias largas (Amazon suele usar FBA... o números de 10+ caracteres)
+  // El OCR a veces confunde letras, usamos un regex más permisivo
+  const fbaMatch = text.match(/FBA[A-Z0-9]+/i) || text.match(/[A-Z0-9]{12,30}/);
   
-  // Buscar información de bulto (ej. "1 de 2", "Page 1 of 1", "1/2")
-  const packageMatch = text.match(/(\d+)\s+(?:de|of|out\s+of)\s+(\d+)/i) || text.match(/(\d+)\/(\d+)/);
+  // Buscar información de bulto
+  const packageMatch = text.match(/(\d+)\s*(?:de|of|out\s+of|\/)\s*(\d+)/i);
   
   return {
     amazonRef: fbaMatch ? fbaMatch[0].toUpperCase() : null,
@@ -22,27 +25,38 @@ export const parseAmazonLabelLocal = (text: string): { amazonRef: string | null;
  */
 export const parseMuelleTextLocal = (text: string): MuelleData[] => {
   const data: MuelleData[] = [];
+  if (!text) return data;
+
+  // Limpiar el texto para el OCR
+  const lines = text.split(/[\n\r]+/);
   
-  // Dividir por palabras para encontrar números de pedido (ej. 1045234)
-  const tokens = text.split(/\s+/);
-  
-  // Buscamos patrones comunes: Un número de 7-10 dígitos seguido cerca de una referencia FBA
-  // Este es un parser simple, se puede mejorar según el formato exacto del PDF
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    
-    // Si parece un número de pedido (ej. 7 dígitos)
-    if (/^\d{6,8}$/.test(token)) {
-      // Mirar en los siguientes tokens si hay algo que parezca una referencia FBA
-      for (let j = 1; j < 15; j++) {
-        if (i + j >= tokens.length) break;
-        const nextToken = tokens[i + j];
-        if (nextToken.startsWith('FBA') || nextToken.length > 8) {
-          data.push({
-            orderNumber: token,
-            amazonRef: nextToken.toUpperCase()
-          });
-          break;
+  lines.forEach(line => {
+    // Buscar un número de pedido (6-8 dígitos) y una referencia FBA en la misma línea
+    const orderMatch = line.match(/\b(\d{6,8})\b/);
+    const refMatch = line.match(/(FBA[A-Z0-9]+|[A-Z0-9]{12,})/i);
+
+    if (orderMatch && refMatch) {
+      data.push({
+        orderNumber: orderMatch[1],
+        amazonRef: refMatch[0].toUpperCase()
+      });
+    }
+  });
+
+  // Si no encontró nada por líneas, buscar por proximidad
+  if (data.length === 0) {
+    const tokens = text.split(/\s+/);
+    for (let i = 0; i < tokens.length; i++) {
+      if (/^\d{6,8}$/.test(tokens[i])) {
+        for (let j = 1; j < 10; j++) {
+          if (i + j >= tokens.length) break;
+          if (/^FBA|^[A-Z0-9]{12,}$/i.test(tokens[i + j])) {
+            data.push({
+              orderNumber: tokens[i],
+              amazonRef: tokens[i + j].toUpperCase()
+            });
+            break;
+          }
         }
       }
     }
