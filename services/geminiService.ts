@@ -1,15 +1,23 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 export interface LabelExtractionResult {
   amazonRef: string | null;
   packageInfo: string | null;
 }
 
+// Función para obtener la instancia de AI de forma segura
+const getAi = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    console.warn("API_KEY no detectada en process.env");
+  }
+  return new GoogleGenAI({ apiKey: apiKey || '' });
+};
+
 export const extractLabelDetails = async (base64Image: string): Promise<LabelExtractionResult> => {
   const base64Data = base64Image.split(',')[1] || base64Image;
+  const ai = getAi();
 
   try {
     const response = await ai.models.generateContent({
@@ -41,7 +49,7 @@ export const extractLabelDetails = async (base64Image: string): Promise<LabelExt
       }
     });
 
-    return JSON.parse(response.text);
+    return JSON.parse(response.text || '{}');
   } catch (error) {
     console.error("Gemini Extraction Error:", error);
     return { amazonRef: null, packageInfo: null };
@@ -50,6 +58,7 @@ export const extractLabelDetails = async (base64Image: string): Promise<LabelExt
 
 export const extractMuelleDataFromImage = async (base64Image: string): Promise<{ amazonRef: string; orderNumber: string }[]> => {
   const base64Data = base64Image.split(',')[1] || base64Image;
+  const ai = getAi();
 
   try {
     const response = await ai.models.generateContent({
@@ -83,7 +92,8 @@ export const extractMuelleDataFromImage = async (base64Image: string): Promise<{
       }
     });
 
-    return JSON.parse(response.text.trim());
+    const text = response.text || "[]";
+    return JSON.parse(text.trim());
   } catch (error) {
     console.error("Gemini Muelle Extraction Error:", error);
     return [];
