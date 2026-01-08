@@ -6,12 +6,10 @@ export interface LabelExtractionResult {
   packageInfo: string | null;
 }
 
-// Recommended model for general extraction tasks
 const MODEL_NAME = 'gemini-3-flash-preview';
 
 export const extractLabelDetails = async (base64Image: string): Promise<LabelExtractionResult> => {
   const base64Data = base64Image.split(',')[1] || base64Image;
-  // Initialize right before call to ensure up-to-date config if necessary
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
@@ -26,7 +24,7 @@ export const extractLabelDetails = async (base64Image: string): Promise<LabelExt
             },
           },
           {
-            text: "Analyze this Amazon shipping label. Extract: 1) The Amazon Reference (usually starts with FBA or similar, or found in DataMatrix). 2) The package count/index (e.g., '1/2', '2/2', '1/1'). Return only as JSON.",
+            text: "Extract shipping label data. The label might be rotated 90/180/270 degrees. 1) Find the Amazon Ref (FBA... or similar ID). 2) Find the package count (e.g. '1/2', '1 of 2', 'Pkg 1'). Look for any two numbers indicating sequence. Return JSON only.",
           },
         ],
       },
@@ -35,8 +33,8 @@ export const extractLabelDetails = async (base64Image: string): Promise<LabelExt
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            amazonRef: { type: Type.STRING, description: "The FBA or Amazon reference ID" },
-            packageInfo: { type: Type.STRING, description: "The package indicator like 1/1 or 1/2" },
+            amazonRef: { type: Type.STRING },
+            packageInfo: { type: Type.STRING, description: "Normalized as X/Y" },
           },
           required: ["amazonRef", "packageInfo"]
         },
@@ -44,7 +42,6 @@ export const extractLabelDetails = async (base64Image: string): Promise<LabelExt
       }
     });
 
-    // Access .text property directly as per SDK guidelines
     const text = response.text || '{}';
     return JSON.parse(text);
   } catch (error) {
@@ -55,7 +52,6 @@ export const extractLabelDetails = async (base64Image: string): Promise<LabelExt
 
 export const extractMuelleDataFromImage = async (base64Image: string): Promise<{ amazonRef: string; orderNumber: string }[]> => {
   const base64Data = base64Image.split(',')[1] || base64Image;
-  // Initialize right before call as recommended
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
@@ -70,7 +66,7 @@ export const extractMuelleDataFromImage = async (base64Image: string): Promise<{
             },
           },
           {
-            text: "This is a logistics document called 'LISTADO DE RUTA DE CAMIONES'. Extract the table data. Focus on 'Nº.PEDIDO' (Order Number) and 'REF. CLIENTE' (Amazon Reference). Return the data as a JSON array of objects with keys 'orderNumber' and 'amazonRef'.",
+            text: "Extract 'Nº.PEDIDO' and 'REF. CLIENTE' from this list. Return JSON array.",
           },
         ],
       },
@@ -81,8 +77,8 @@ export const extractMuelleDataFromImage = async (base64Image: string): Promise<{
           items: {
             type: Type.OBJECT,
             properties: {
-              orderNumber: { type: Type.STRING, description: "The internal order number" },
-              amazonRef: { type: Type.STRING, description: "The Amazon reference" },
+              orderNumber: { type: Type.STRING },
+              amazonRef: { type: Type.STRING },
             },
             required: ["orderNumber", "amazonRef"],
           },
@@ -90,7 +86,6 @@ export const extractMuelleDataFromImage = async (base64Image: string): Promise<{
       }
     });
 
-    // Access .text property directly
     const text = response.text || "[]";
     return JSON.parse(text.trim());
   } catch (error) {

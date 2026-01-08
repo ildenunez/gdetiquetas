@@ -1,7 +1,6 @@
 
 import { MuelleData, RawToken, LabelRules } from '../types';
 
-// Lista de palabras que NO pueden ser una referencia de Amazon (añadido VENDORCENTRAL)
 const BLACKLIST_REFS = ['AMAZON', 'HTTPS', 'HTTP', 'SHIPMENT', 'PACKAGE', 'LABEL', 'CHECK', 'WEIGHT', 'BILLING', 'AMAZONHTTPS', 'VENDORCENTRAL'];
 
 const cleanOrderNumber = (text: string): string | null => {
@@ -12,45 +11,62 @@ const cleanOrderNumber = (text: string): string | null => {
 
 const cleanAmazonRef = (text: string): string | null => {
   if (!text) return null;
-  
   let t = text.toUpperCase().replace(/[\n\r]/g, ' ');
-
-  // 1. Prioridad: FBA directo
   const fbaMatch = t.match(/FBA[A-Z0-9]{8,16}/);
   if (fbaMatch) return fbaMatch[0];
 
-  // 2. Buscar bloques largos (ampliamos a 30 caracteres por si vienen pegados)
   const matches = t.match(/[A-Z0-9]{8,30}/g);
   if (matches) {
-    // Si el bloque contiene VENDORCENTRAL, intentamos separar lo que hay antes o después
     const complexMatch = matches.find(m => m.includes('VENDORCENTRAL'));
     if (complexMatch) {
-       // Si es algo como 71261120VENDORCENTRAL, queremos el 71261120
        const parts = complexMatch.split('VENDORCENTRAL');
        const candidate = parts.find(p => p.length >= 8);
        if (candidate) return candidate;
     }
-
     const validMatches = matches.filter(m => !BLACKLIST_REFS.some(b => m === b));
     if (validMatches.length > 0) {
-      // Preferimos el que tenga letras y números
       const mixed = validMatches.find(m => /[A-Z]/.test(m) && /\d/.test(m));
       return mixed || validMatches[0];
     }
   }
-  
   return null;
 };
 
+/**
+ * Motor de limpieza de bultos mejorado para rotación.
+ */
 const cleanPackageInfo = (text: string): string | null => {
   if (!text) return null;
-  // Buscamos patrones como "1 / 2", "1-2", "1 OF 2", "Bulto 1 de 2"
-  const match = text.match(/\b(\d+)\s*[\/\-]\s*(\d+)\b/) || text.match(/\b(\d+)\s+OF\s+(\d+)\b/i);
-  if (match) return match[0].replace(/\s+OF\s+/i, '/').replace(/\s+/g, '');
-  
-  // Caso de respaldo: solo números seguidos
-  const fallback = text.match(/(\d+)\s*de\s*(\d+)/i);
-  if (fallback) return `${fallback[1]}/${fallback[2]}`;
+  let t = text.toUpperCase().replace(/\s+/g, ' ').trim();
+
+  // Patrones comunes con cualquier separador
+  const patterns = [
+    /(\d+)\s*[\/\-\|]\s*(\d+)/,           // 1/2, 1-2, 1|2
+    /(\d+)\s+(?:OF|DE|OUT OF)\s+(\d+)/,   // 1 OF 2, 1 DE 2
+    /PKG:?\s*(\d+)\s*(\d+)/,              // PKG 1 1
+    /\b(\d+)\s+(\d+)\b/                   // 1 2 (espacio simple)
+  ];
+
+  for (const pattern of patterns) {
+    const match = t.match(pattern);
+    if (match) {
+      const current = parseInt(match[1]);
+      const total = parseInt(match[2]);
+      // Validación lógica: el bulto actual no puede ser mayor que el total + margen error OCR
+      // Y los números suelen ser pequeños (< 500)
+      if (current <= total && total < 1000 && current > 0) {
+        return `${current}/${total}`;
+      }
+    }
+  }
+
+  // Fallback: Si hay exactamente dos números pequeños en el texto, asumimos que es el bulto
+  const numbers = t.match(/\b\d+\b/g);
+  if (numbers && numbers.length >= 2) {
+    const n1 = parseInt(numbers[0]);
+    const n2 = parseInt(numbers[1]);
+    if (n1 <= n2 && n2 < 1000) return `${n1}/${n2}`;
+  }
 
   return null;
 };
@@ -91,15 +107,18 @@ export const tokenizeText = (rawItems: any[]): RawToken[] => {
 
 export const parseAmazonLabelLocal = (text: string): { amazonRef: string | null; packageInfo: string | null } => {
   if (!text) return { amazonRef: null, packageInfo: null };
-  const t = text.toUpperCase();
-  const amazonRef = cleanAmazonRef(t);
-  const pkg = cleanPackageInfo(t);
-  return { amazonRef, packageInfo: pkg };
+  return { 
+    amazonRef: cleanAmazonRef(text), 
+    packageInfo: cleanPackageInfo(text) 
+  };
 };
 
 export const extractLabelBySpatialRules = (tokens: RawToken[], rules: LabelRules): { packageInfo: string | null } => {
   const PAGE_W = 595;
   const PAGE_H = 842;
+
+  // Si el área es nula o demasiado pequeña, ignoramos
+  if (!rules.pkgArea || rules.pkgArea.w < 0.01) return { packageInfo: null };
 
   const pkgZone = {
     x: rules.pkgArea.x * PAGE_W,
@@ -108,7 +127,7 @@ export const extractLabelBySpatialRules = (tokens: RawToken[], rules: LabelRules
     h: rules.pkgArea.h * PAGE_H
   };
 
-  const tol = 10; 
+  const tol = 30; // Margen generoso para textos rotados que bailan en el PDF
 
   const pkgTokens = tokens.filter(t => 
     t.x >= pkgZone.x - tol && 
@@ -117,9 +136,19 @@ export const extractLabelBySpatialRules = (tokens: RawToken[], rules: LabelRules
     t.y <= pkgZone.y + pkgZone.h + tol
   );
 
-  return {
-    packageInfo: cleanPackageInfo(pkgTokens.map(t => t.text).join(" "))
-  };
+  if (pkgTokens.length === 0) return { packageInfo: null };
+
+  // Intentamos reconstruir el texto probando dos órdenes (por si está rotado 90º o es normal)
+  // 1. Orden normal (X luego Y)
+  const normalText = [...pkgTokens].sort((a, b) => a.x - b.x || b.y - a.y).map(t => t.text).join(" ");
+  const resultNormal = cleanPackageInfo(normalText);
+  if (resultNormal) return { packageInfo: resultNormal };
+
+  // 2. Orden vertical (Y luego X) - Típico de etiquetas rotadas
+  const verticalText = [...pkgTokens].sort((a, b) => b.y - a.y || a.x - b.x).map(t => t.text).join(" ");
+  const resultVertical = cleanPackageInfo(verticalText);
+  
+  return { packageInfo: resultVertical };
 };
 
 export const extractBySpatialRange = (allTokens: RawToken[], orderSample: RawToken, refSample: RawToken): MuelleData[] => {

@@ -25,15 +25,19 @@ export interface ProcessedLabel {
 }
 
 export interface OverlayConfig {
-  x: number;
+  // Posición del texto del pedido
+  x: number; 
   y: number;
   fontSize: number;
-  color: string;
-  cropTop: number;
-  cropBottom: number;
-  cropLeft: number;
-  cropRight: number;
   rotation: number;
+  
+  // Configuración de la "Cámara" sobre la etiqueta
+  zoom: number;
+  panX: number;
+  panY: number;
+  imageRotation: number;
+  
+  color: string;
 }
 
 export interface RawToken {
