@@ -1,0 +1,7 @@
+{
+  "name": "Copy of GD Etiquetas - Amazon Automator",
+  "description": "Herramienta avanzada para el cruce de etiquetas de Amazon con listados de muelle y automatización de impresión.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
