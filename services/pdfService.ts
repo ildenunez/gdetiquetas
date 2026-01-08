@@ -1,11 +1,7 @@
 
-declare const pdfjsLib: any;
+import { PdfPageResult } from '../types.ts';
 
-export interface PdfPageResult {
-  imageUrl: string;
-  pageNumber: number;
-  textContent: string;
-}
+declare const pdfjsLib: any;
 
 export const convertPdfToImages = async (file: File): Promise<PdfPageResult[]> => {
   const arrayBuffer = await file.arrayBuffer();
@@ -16,22 +12,34 @@ export const convertPdfToImages = async (file: File): Promise<PdfPageResult[]> =
     const page = await pdf.getPage(i);
     
     const textContentObj = await page.getTextContent();
-    const textContent = textContentObj.items.map((item: any) => item.str).join(' ');
+    const items = textContentObj.items as any[];
+    
+    const processedItems = items.map((item, idx) => ({
+      str: item.str,
+      x: item.transform[4],
+      y: item.transform[5],
+      width: item.width,
+      height: item.transform[0]
+    }));
 
-    // Subimos escala a 2.5 para OCR de alta precisión
-    const viewport = page.getViewport({ scale: 2.5 });
+    // Escala 5.0: Esto genera una imagen de alta densidad necesaria para DataMatrix pequeños
+    const viewport = page.getViewport({ scale: 5.0 });
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
-    canvas.height = viewport.height;
-    canvas.width = viewport.width;
-
-    await page.render({ canvasContext: context, viewport }).promise;
-    
-    results.push({
-      imageUrl: canvas.toDataURL('image/jpeg', 0.9), // Mayor calidad
-      pageNumber: i,
-      textContent: textContent
-    });
+    if (context) {
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+      
+      // Optimizaciones de renderizado para nitidez técnica
+      context.imageSmoothingEnabled = false;
+      await page.render({ canvasContext: context, viewport }).promise;
+      
+      results.push({
+        imageUrl: canvas.toDataURL('image/jpeg', 1.0),
+        pageNumber: i,
+        textContent: processedItems
+      });
+    }
   }
 
   return results;
