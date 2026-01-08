@@ -33,39 +33,31 @@ const cleanAmazonRef = (text: string): string | null => {
 };
 
 /**
- * Motor de limpieza de bultos mejorado para rotación.
+ * Motor de limpieza de bultos: Optimizado para procesar resultados de OCR localizado (números puros)
  */
-const cleanPackageInfo = (text: string): string | null => {
+export const cleanPackageInfo = (text: string): string | null => {
   if (!text) return null;
-  let t = text.toUpperCase().replace(/\s+/g, ' ').trim();
+  
+  // Limpiamos todo lo que no sea número o barra
+  let t = text.trim().replace(/[^0-9\/]/g, ' ').replace(/\s+/g, ' ').trim();
 
-  // Patrones comunes con cualquier separador
-  const patterns = [
-    /(\d+)\s*[\/\-\|]\s*(\d+)/,           // 1/2, 1-2, 1|2
-    /(\d+)\s+(?:OF|DE|OUT OF)\s+(\d+)/,   // 1 OF 2, 1 DE 2
-    /PKG:?\s*(\d+)\s*(\d+)/,              // PKG 1 1
-    /\b(\d+)\s+(\d+)\b/                   // 1 2 (espacio simple)
-  ];
-
-  for (const pattern of patterns) {
-    const match = t.match(pattern);
-    if (match) {
-      const current = parseInt(match[1]);
-      const total = parseInt(match[2]);
-      // Validación lógica: el bulto actual no puede ser mayor que el total + margen error OCR
-      // Y los números suelen ser pequeños (< 500)
-      if (current <= total && total < 1000 && current > 0) {
-        return `${current}/${total}`;
-      }
+  // Si el OCR leyó algo como "1 2" en lugar de "1/2"
+  const parts = t.split(/[\s\/]/).filter(p => p.length > 0);
+  
+  if (parts.length >= 2) {
+    const current = parseInt(parts[0]);
+    const total = parseInt(parts[1]);
+    if (current <= total && total < 1000 && current > 0) {
+      return `${current}/${total}`;
     }
   }
 
-  // Fallback: Si hay exactamente dos números pequeños en el texto, asumimos que es el bulto
-  const numbers = t.match(/\b\d+\b/g);
-  if (numbers && numbers.length >= 2) {
-    const n1 = parseInt(numbers[0]);
-    const n2 = parseInt(numbers[1]);
-    if (n1 <= n2 && n2 < 1000) return `${n1}/${n2}`;
+  // Intento de regex estándar
+  const match = t.match(/(\d+)\/(\d+)/);
+  if (match) {
+    const c = parseInt(match[1]);
+    const tot = parseInt(match[2]);
+    if (c <= tot && tot < 1000) return `${c}/${tot}`;
   }
 
   return null;
@@ -117,7 +109,6 @@ export const extractLabelBySpatialRules = (tokens: RawToken[], rules: LabelRules
   const PAGE_W = 595;
   const PAGE_H = 842;
 
-  // Si el área es nula o demasiado pequeña, ignoramos
   if (!rules.pkgArea || rules.pkgArea.w < 0.01) return { packageInfo: null };
 
   const pkgZone = {
@@ -127,8 +118,7 @@ export const extractLabelBySpatialRules = (tokens: RawToken[], rules: LabelRules
     h: rules.pkgArea.h * PAGE_H
   };
 
-  const tol = 30; // Margen generoso para textos rotados que bailan en el PDF
-
+  const tol = 15; 
   const pkgTokens = tokens.filter(t => 
     t.x >= pkgZone.x - tol && 
     t.x <= pkgZone.x + pkgZone.w + tol &&
@@ -138,17 +128,15 @@ export const extractLabelBySpatialRules = (tokens: RawToken[], rules: LabelRules
 
   if (pkgTokens.length === 0) return { packageInfo: null };
 
-  // Intentamos reconstruir el texto probando dos órdenes (por si está rotado 90º o es normal)
-  // 1. Orden normal (X luego Y)
-  const normalText = [...pkgTokens].sort((a, b) => a.x - b.x || b.y - a.y).map(t => t.text).join(" ");
-  const resultNormal = cleanPackageInfo(normalText);
-  if (resultNormal) return { packageInfo: resultNormal };
+  const reconstructedText = [...pkgTokens]
+    .sort((a, b) => {
+      if (Math.abs(a.y - b.y) < 5) return a.x - b.x;
+      return b.y - a.y;
+    })
+    .map(t => t.text)
+    .join("/");
 
-  // 2. Orden vertical (Y luego X) - Típico de etiquetas rotadas
-  const verticalText = [...pkgTokens].sort((a, b) => b.y - a.y || a.x - b.x).map(t => t.text).join(" ");
-  const resultVertical = cleanPackageInfo(verticalText);
-  
-  return { packageInfo: resultVertical };
+  return { packageInfo: cleanPackageInfo(reconstructedText) };
 };
 
 export const extractBySpatialRange = (allTokens: RawToken[], orderSample: RawToken, refSample: RawToken): MuelleData[] => {

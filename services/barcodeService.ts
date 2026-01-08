@@ -15,12 +15,39 @@ interface CropArea {
 }
 
 /**
+ * Recorta un área de la imagen basada en porcentajes 0-1
+ */
+export async function cropImage(url: string, area: CropArea): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      // Añadimos un pequeño margen de seguridad
+      const margin = 0.02;
+      const x = Math.max(0, area.x - margin) * img.width;
+      const y = Math.max(0, area.y - margin) * img.height;
+      const w = Math.min(1, area.w + margin * 2) * img.width;
+      const h = Math.min(1, area.h + margin * 2) * img.height;
+
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/png'));
+      } else resolve(url);
+    };
+    img.src = url;
+  });
+}
+
+/**
  * Escanea un DataMatrix, permitiendo recortar un área específica de la imagen original
  */
 export const scanDataMatrix = async (imageUrl: string, crop?: CropArea): Promise<BarcodeResult | null> => {
   const reader = new ZXing.BrowserDatamatrixCodeReader();
   
-  // 1. Si hay área de recorte, pre-procesamos la imagen para extraer solo ese trozo
   const sourceUrl = crop ? await cropImage(imageUrl, crop) : imageUrl;
   
   const strategies = [
@@ -45,39 +72,11 @@ export const scanDataMatrix = async (imageUrl: string, crop?: CropArea): Promise
         };
       }
     } catch (e) {
-      // Siguiente filtro
     }
   }
 
   return null;
 };
-
-/**
- * Recorta un área de la imagen basada en porcentajes 0-1
- */
-async function cropImage(url: string, area: CropArea): Promise<string> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const margin = 0.02;
-      const x = Math.max(0, area.x - margin) * img.width;
-      const y = Math.max(0, area.y - margin) * img.height;
-      const w = Math.min(1, area.w + margin * 2) * img.width;
-      const h = Math.min(1, area.h + margin * 2) * img.height;
-
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/png'));
-      } else resolve(url);
-    };
-    img.src = url;
-  });
-}
 
 async function applyFilter(url: string, filterFn: (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => void): Promise<string> {
   return new Promise((resolve) => {
@@ -154,20 +153,9 @@ function invertColors(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) 
   ctx.putImageData(imgData, 0, 0);
 }
 
-/**
- * REGLA SOLICITADA:
- * Elimina el primer carácter, toma los 9 siguientes y descarta el resto.
- */
 export const extractAmazonRefFromBarcode = (barcodeText: string): string | null => {
   if (!barcodeText || barcodeText.length < 10) return null;
-  
-  // Eliminamos caracteres invisibles de control que a veces el lector detecta al inicio
   const cleanStart = barcodeText.trim();
-  
-  // Regla exacta: substring desde el índice 1 (segundo carácter) hasta el 10 (total 9 caracteres)
   const result = cleanStart.substring(1, 10);
-  
-  console.log(`[Barcode Logic] Raw: "${barcodeText}" -> Extracted (1 to 10): "${result}"`);
-  
   return result.toUpperCase();
 };
