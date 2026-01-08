@@ -7,8 +7,9 @@ import LabelPrinter from './components/LabelPrinter.tsx';
 import { MuelleData, ProcessedLabel } from './types.ts';
 import { convertPdfToImages } from './services/pdfService.ts';
 import { extractLabelDetails } from './services/geminiService.ts';
+import { parseAmazonLabelLocal } from './services/localParser.ts';
 
-const CONCURRENCY_LIMIT = 5; 
+const CONCURRENCY_LIMIT = 3; 
 
 const App: React.FC = () => {
   const [muelleData, setMuelleData] = useState<MuelleData[]>([]);
@@ -39,13 +40,16 @@ const App: React.FC = () => {
       try {
         const pages = await convertPdfToImages(file);
         pages.forEach((page) => {
+          // Intentar extracción local inmediata (Gratis)
+          const localExtract = parseAmazonLabelLocal(page.textContent);
+          
           newLabels.push({
             id: Math.random().toString(36).substr(2, 9),
             originalFileName: file.name,
             pageNumber: page.pageNumber,
             imageUrl: page.imageUrl,
-            extractedAmazonRef: null,
-            packageInfo: null,
+            extractedAmazonRef: localExtract.amazonRef,
+            packageInfo: localExtract.packageInfo,
             matchedOrderNumber: null,
             status: 'pending'
           });
@@ -65,43 +69,67 @@ const App: React.FC = () => {
 
     const pendingLabels = labels.filter(l => l.status === 'pending');
     
-    for (let i = 0; i < pendingLabels.length; i += CONCURRENCY_LIMIT) {
-      const batch = pendingLabels.slice(i, i + CONCURRENCY_LIMIT);
+    // Primero intentamos cruzar con lo que ya tenemos de la extracción local
+    const updatedWithMatches = labels.map(label => {
+      if (label.matchedOrderNumber) return label;
       
-      await Promise.all(batch.map(async (label) => {
-        setLabels(current => 
-          current.map(l => l.id === label.id ? { ...l, status: 'processing' } : l)
-        );
+      let matchedOrder: string | null = null;
+      if (label.extractedAmazonRef) {
+        const cleanRef = label.extractedAmazonRef.trim().toLowerCase();
+        const match = muelleData.find(m => {
+          const mRef = m.amazonRef.trim().toLowerCase();
+          return cleanRef === mRef || cleanRef.includes(mRef) || mRef.includes(cleanRef);
+        });
+        matchedOrder = match ? match.orderNumber : null;
+      }
+      
+      return matchedOrder ? { ...label, matchedOrderNumber: matchedOrder, status: 'success' as const } : label;
+    });
 
-        try {
-          const result = await extractLabelDetails(label.imageUrl);
-          
-          let matchedOrder: string | null = null;
-          if (result.amazonRef) {
-            const cleanRef = result.amazonRef.trim().toLowerCase();
-            const match = muelleData.find(m => {
-              const mRef = m.amazonRef.trim().toLowerCase();
-              return cleanRef === mRef || cleanRef.includes(mRef) || mRef.includes(cleanRef);
-            });
-            matchedOrder = match ? match.orderNumber : null;
+    setLabels(updatedWithMatches);
+
+    // Si aún hay pendientes y hay API KEY, intentamos con IA (opcional)
+    const stillPending = updatedWithMatches.filter(l => l.status === 'pending' && !l.matchedOrderNumber);
+    const hasApiKey = process.env.API_KEY && process.env.API_KEY.length > 10;
+
+    if (hasApiKey && stillPending.length > 0) {
+      for (let i = 0; i < stillPending.length; i += CONCURRENCY_LIMIT) {
+        const batch = stillPending.slice(i, i + CONCURRENCY_LIMIT);
+        
+        await Promise.all(batch.map(async (label) => {
+          setLabels(current => current.map(l => l.id === label.id ? { ...l, status: 'processing' } : l));
+
+          try {
+            const result = await extractLabelDetails(label.imageUrl);
+            let matchedOrder: string | null = null;
+            
+            if (result.amazonRef) {
+              const cleanRef = result.amazonRef.trim().toLowerCase();
+              const match = muelleData.find(m => {
+                const mRef = m.amazonRef.trim().toLowerCase();
+                return cleanRef === mRef || cleanRef.includes(mRef) || mRef.includes(cleanRef);
+              });
+              matchedOrder = match ? match.orderNumber : null;
+            }
+
+            setLabels(current => 
+              current.map(l => l.id === label.id ? { 
+                ...l, 
+                status: matchedOrder ? 'success' : 'pending', 
+                extractedAmazonRef: result.amazonRef || l.extractedAmazonRef,
+                packageInfo: result.packageInfo || l.packageInfo,
+                matchedOrderNumber: matchedOrder
+              } : l)
+            );
+          } catch (error) {
+            console.error("AI Error:", error);
+            setLabels(current => current.map(l => l.id === label.id ? { ...l, status: 'error' } : l));
           }
-
-          setLabels(current => 
-            current.map(l => l.id === label.id ? { 
-              ...l, 
-              status: 'success', 
-              extractedAmazonRef: result.amazonRef,
-              packageInfo: result.packageInfo,
-              matchedOrderNumber: matchedOrder
-            } : l)
-          );
-        } catch (error) {
-          console.error(`Error processing label ${label.id}:`, error);
-          setLabels(current => 
-            current.map(l => l.id === label.id ? { ...l, status: 'error' } : l)
-          );
-        }
-      }));
+        }));
+      }
+    } else if (!hasApiKey && stillPending.length > 0) {
+        // Si no hay IA, marcamos como error o dejamos pendiente si no hubo match
+        setLabels(current => current.map(l => l.status === 'pending' ? { ...l, status: l.extractedAmazonRef ? 'success' : 'error' } : l));
     }
 
     setIsProcessingLabels(false);
@@ -126,17 +154,6 @@ const App: React.FC = () => {
             <p className="text-slate-400 text-sm mt-1">Sánchez Giner I S.A. - Shiito Logistics</p>
           </div>
           <div className="flex items-center gap-3 print:hidden">
-            <a 
-              href="https://github.com/ildenunez/gdetiquetas" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="p-2 text-slate-400 hover:text-white transition-colors flex items-center gap-2 group"
-              title="Repositorio gdetiquetas"
-            >
-              <span className="text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity">GitHub</span>
-              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" /></svg>
-            </a>
-            
             <button 
               onClick={resetAll}
               className="px-4 py-2 text-sm font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors border border-slate-700"
@@ -170,11 +187,12 @@ const App: React.FC = () => {
         </div>
 
         {muelleData.length > 0 && !isProcessingMuelle && (
-           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm print:hidden">
-              <div className="flex items-center gap-2 text-indigo-600 font-semibold mb-1 text-sm">
+           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm print:hidden flex justify-between items-center">
+              <div className="flex items-center gap-2 text-indigo-600 font-semibold text-sm">
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
                 Base de datos cargada ({muelleData.length} pedidos)
               </div>
+              <span className="text-[10px] text-slate-400">MODO LOCAL ACTIVO</span>
            </div>
         )}
 
@@ -205,12 +223,12 @@ const App: React.FC = () => {
               {isProcessingLabels ? (
                 <>
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  Procesando...
+                  Cruzando datos...
                 </>
               ) : (
                 <>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                  Cruzar {summary.pending} Etiquetas
+                  CRUZAR ETIQUETAS
                 </>
               )}
             </button>
