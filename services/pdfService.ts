@@ -15,12 +15,11 @@ export const convertPdfToImages = async (file: File): Promise<PdfPageResult[]> =
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     
-    // Extraer texto (Gratis y Local)
     const textContentObj = await page.getTextContent();
     const textContent = textContentObj.items.map((item: any) => item.str).join(' ');
 
-    // Renderizar imagen para previsualización
-    const viewport = page.getViewport({ scale: 1.5 });
+    // Subimos escala a 2.5 para OCR de alta precisión
+    const viewport = page.getViewport({ scale: 2.5 });
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
     canvas.height = viewport.height;
@@ -29,7 +28,7 @@ export const convertPdfToImages = async (file: File): Promise<PdfPageResult[]> =
     await page.render({ canvasContext: context, viewport }).promise;
     
     results.push({
-      imageUrl: canvas.toDataURL('image/jpeg', 0.8),
+      imageUrl: canvas.toDataURL('image/jpeg', 0.9), // Mayor calidad
       pageNumber: i,
       textContent: textContent
     });

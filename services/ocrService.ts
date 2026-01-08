@@ -11,7 +11,6 @@ export const performLocalOCR = async (
   onProgress?: (p: OCRProgress) => void
 ): Promise<string> => {
   try {
-    // Usamos el worker de Tesseract para tener más control y evitar bloqueos
     const worker = await Tesseract.createWorker('eng', 1, {
       logger: (m: any) => {
         if (m.status === 'recognizing text' && onProgress) {
@@ -20,18 +19,14 @@ export const performLocalOCR = async (
       }
     });
 
-    // Parámetros para mejorar la lectura de códigos alfanuméricos (Amazon)
-    await worker.setParameters({
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/-. ',
-    });
-
+    // Eliminamos la whitelist restrictiva, dejamos que detecte todo y limpiamos nosotros
+    // Esto evita que si detecta un caracter especial por error, descarte la palabra entera
     const { data: { text } } = await worker.recognize(imageUrl);
     await worker.terminate();
     
-    console.log("OCR Result Raw:", text);
     return text;
   } catch (error) {
-    console.error("Error crítico en OCR Local:", error);
+    console.error("Error OCR:", error);
     return "";
   }
 };

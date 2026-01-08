@@ -64,7 +64,7 @@ const App: React.FC = () => {
     if (labels.length === 0 || isProcessingLabels) return;
     setIsProcessingLabels(true);
 
-    const pendingLabels = labels.filter(l => l.status === 'pending' || l.status === 'error');
+    const pendingLabels = labels.filter(l => l.status === 'pending' || l.status === 'error' || l.status === 'processing');
     let count = 0;
 
     for (const label of pendingLabels) {
@@ -74,9 +74,8 @@ const App: React.FC = () => {
       let amazonRef = label.extractedAmazonRef;
       let packageInfo = label.packageInfo;
 
-      // Si no tenemos texto (es una imagen/escaneo), forzamos OCR
       if (!amazonRef || amazonRef.length < 5) {
-        setOcrProgress({ status: `Procesando etiqueta ${count}/${pendingLabels.length}`, progress: 0 });
+        setOcrProgress({ status: `Etiq. ${count}/${pendingLabels.length}`, progress: 0 });
         const ocrText = await performLocalOCR(label.imageUrl, (p) => setOcrProgress({ ...p, status: `Etiq. ${count}/${pendingLabels.length}: ${p.status}` }));
         const ocrExtract = parseAmazonLabelLocal(ocrText);
         amazonRef = ocrExtract.amazonRef;
@@ -84,19 +83,18 @@ const App: React.FC = () => {
       }
 
       let matchedOrder: string | null = null;
-      if (amazonRef) {
+      if (amazonRef && muelleData.length > 0) {
         const cleanRef = amazonRef.trim().toUpperCase();
         const match = muelleData.find(m => {
           const mRef = m.amazonRef.trim().toUpperCase();
-          // Match flexible
-          return cleanRef.includes(mRef) || mRef.includes(cleanRef) || (cleanRef.length > 8 && mRef.includes(cleanRef.substring(0, 8)));
+          return cleanRef.includes(mRef) || mRef.includes(cleanRef);
         });
         matchedOrder = match ? match.orderNumber : null;
       }
 
       setLabels(current => current.map(l => l.id === label.id ? { 
         ...l, 
-        status: matchedOrder ? 'success' : 'error',
+        status: matchedOrder ? 'success' : (amazonRef ? 'error' : 'error'),
         extractedAmazonRef: amazonRef,
         packageInfo: packageInfo,
         matchedOrderNumber: matchedOrder
@@ -119,11 +117,11 @@ const App: React.FC = () => {
             <p className="text-slate-400 text-sm mt-1">Sánchez Giner I S.A. - Shiito Logistics</p>
           </div>
           <div className="flex items-center gap-3 no-print">
-            <button onClick={() => { setLabels([]); setMuelleData([]); }} className="px-4 py-2 text-sm font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700">
-              Reiniciar
+            <button onClick={() => { setLabels([]); setMuelleData([]); }} className="px-4 py-2 text-sm font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors">
+              Reiniciar Todo
             </button>
             {summary.matched > 0 && (
-              <button onClick={() => setShowPrintMode(true)} className="px-6 py-2 text-sm font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 shadow-lg">
+              <button onClick={() => setShowPrintMode(true)} className="px-6 py-2 text-sm font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 shadow-lg transition-all">
                 IMPRIMIR ({summary.matched})
               </button>
             )}
@@ -138,9 +136,10 @@ const App: React.FC = () => {
             isLoading={isProcessingMuelle}
             onLoadingChange={setIsProcessingMuelle}
           />
+          {/* Desbloqueado: Ya no requiere que muelleData tenga contenido para activarse */}
           <LabelUploader 
             onFilesSelected={handleLabelsSelected} 
-            disabled={muelleData.length === 0 || isProcessingMuelle} 
+            disabled={isProcessingMuelle} 
           />
         </div>
 
@@ -151,12 +150,8 @@ const App: React.FC = () => {
                <span className="text-2xl font-black">{ocrProgress.progress}%</span>
             </div>
             <div className="w-full bg-slate-700 rounded-full h-4 overflow-hidden">
-              <div 
-                className="bg-indigo-500 h-full transition-all duration-300 ease-out"
-                style={{ width: `${ocrProgress.progress}%` }}
-              ></div>
+              <div className="bg-indigo-500 h-full transition-all duration-300 ease-out" style={{ width: `${ocrProgress.progress}%` }}></div>
             </div>
-            <p className="text-[10px] text-slate-400 mt-2 text-center uppercase">No cierres la pestaña mientras se realiza el escaneo profundo</p>
           </div>
         )}
 
@@ -168,9 +163,14 @@ const App: React.FC = () => {
                 <p className="text-2xl font-black">{summary.total}</p>
               </div>
               <div className="text-center">
-                <p className="text-[10px] text-green-500 font-bold uppercase">Cruzadas</p>
+                <p className="text-[10px] text-green-500 font-bold uppercase">Encontradas</p>
                 <p className="text-2xl font-black text-green-600">{summary.matched}</p>
               </div>
+              {muelleData.length === 0 && (
+                <div className="bg-orange-100 text-orange-700 text-[10px] p-2 rounded-lg font-bold flex items-center">
+                  ⚠️ SIN LISTADO DE RUTA
+                </div>
+              )}
             </div>
             
             <button 
@@ -180,7 +180,7 @@ const App: React.FC = () => {
                 isProcessingLabels ? 'bg-slate-400' : 'bg-indigo-600 hover:bg-indigo-700'
               }`}
             >
-              {isProcessingLabels ? 'PROCESANDO...' : 'INICIAR CRUCE AUTOMÁTICO'}
+              {isProcessingLabels ? 'PROCESANDO...' : 'INICIAR LECTURA DE ETIQUETAS'}
             </button>
           </div>
         )}
