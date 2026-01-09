@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App';
+import App from './App.tsx';
 
 const rootElement = document.getElementById('root');
 
@@ -17,6 +17,11 @@ if (!rootElement) {
     );
   } catch (error) {
     console.error("Error crítico al renderizar React:", error);
-    rootElement.innerHTML = `<div style="padding: 20px; color: red;">Error al cargar la aplicación. Revisa la consola (F12).</div>`;
+    if (rootElement) {
+      rootElement.innerHTML = `<div style="padding: 40px; color: #ef4444; font-family: sans-serif;">
+        <h1 style="font-weight: bold;">Error de Carga</h1>
+        <p>No se pudo iniciar React. Detalles: ${error instanceof Error ? error.message : 'Error desconocido'}</p>
+      </div>`;
+    }
   }
 }
