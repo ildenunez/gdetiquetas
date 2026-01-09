@@ -12,7 +12,6 @@ const BLACKLIST_REFS = [
 export const isUpsLabel = (text: string): boolean => {
   if (!text) return false;
   const t = text.toUpperCase();
-  // Detección más agresiva de UPS: por nombre o por formato de tracking típico 1Z...
   return (
     t.includes('UPS') || 
     t.includes('UNITED PARCEL') || 
@@ -20,6 +19,12 @@ export const isUpsLabel = (text: string): boolean => {
     /\b1Z[A-Z0-9]{16}\b/.test(t) ||
     t.includes('WORLDSHIP')
   );
+};
+
+export const isSeurOrOntime = (text: string): boolean => {
+  if (!text) return false;
+  const t = text.toUpperCase();
+  return t.includes('SEUR') || t.includes('ONTIME');
 };
 
 export const parsePackageQty = (text: string): [number, number] | null => {
@@ -55,25 +60,21 @@ export const normalizeForMatch = (str: string): string => {
 
 export const cleanAmazonRef = (text: string, isFromDedicatedArea: boolean = false): string | null => {
   if (!text) return null;
-  // Limpiamos caracteres raros pero mantenemos letras y números
   let cleanStr = text.replace(/[^A-Za-z0-9]/g, ' ').trim();
   const words = cleanStr.split(/\s+/).filter(w => w.length >= (isFromDedicatedArea ? 2 : 4));
 
-  // Prioridad 1: Patrones conocidos de Amazon
   for (const word of words) {
     const w = word.toUpperCase();
     if (w.startsWith('FBA') && w.length >= 7) return w;
     if (w.startsWith('X00') && w.length >= 7) return w;
   }
 
-  // Prioridad 2: Palabras alfanuméricas que no estén en la lista negra
   for (const word of words) {
     if (/[a-zA-Z]/.test(word) && /[0-9]/.test(word)) {
        if (!BLACKLIST_REFS.some(b => word.toUpperCase().includes(b))) return word;
     }
   }
 
-  // Si viene de una zona dedicada, ser muy permisivo
   if (isFromDedicatedArea && words.length > 0) {
     const sorted = words
       .filter(w => !BLACKLIST_REFS.some(b => w.toUpperCase().includes(b)))

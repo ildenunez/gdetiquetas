@@ -7,8 +7,8 @@ import LabelPrinter from './components/LabelPrinter.tsx';
 import LabelConfigurator from './components/LabelConfigurator.tsx';
 import { MuelleData, ProcessedLabel, LabelRules, PdfPageResult, MatchCandidate } from './types.ts';
 import { convertPdfToImages } from './services/pdfService.ts';
-import { parseAmazonLabelLocal, tokenizeText, parsePackageQty, isUpsLabel } from './services/localParser.ts';
-import { cropImage } from './services/barcodeService.ts';
+import { parseAmazonLabelLocal, tokenizeText, parsePackageQty, isUpsLabel, isSeurOrOntime } from './services/localParser.ts';
+import { cropImage, scanDataMatrix } from './services/barcodeService.ts';
 import { performCharacterOCR } from './services/ocrService.ts';
 
 const App: React.FC = () => {
@@ -23,6 +23,9 @@ const App: React.FC = () => {
   const [samplePage, setSamplePage] = useState<PdfPageResult | null>(null);
   const [showLabelConfig, setShowLabelConfig] = useState(false);
   const [resolvingLabel, setResolvingLabel] = useState<ProcessedLabel | null>(null);
+  
+  // Clave para forzar el remontado de componentes y limpiar sus estados internos al reiniciar
+  const [resetKey, setResetKey] = useState(0);
 
   useEffect(() => {
     setSummary({
@@ -71,7 +74,7 @@ const App: React.FC = () => {
   };
 
   const resetAll = () => {
-    if (confirm("¿Estás seguro de que quieres borrar todos los datos y empezar de cero?")) {
+    if (window.confirm("¿Estás seguro de que quieres borrar todo para empezar de cero?")) {
       setLabels([]);
       setMuelleData([]);
       setLabelRules(null);
@@ -82,6 +85,9 @@ const App: React.FC = () => {
       setShowLabelConfig(false);
       setResolvingLabel(null);
       setShowPrintMode(false);
+      // Incrementamos la clave para forzar que los componentes se destruyan y vuelvan a nacer limpios
+      setResetKey(prev => prev + 1);
+      window.scrollTo(0, 0);
     }
   };
 
@@ -89,78 +95,86 @@ const App: React.FC = () => {
     if (labels.length === 0 || isProcessingLabels || muelleData.length === 0) return;
     
     setIsProcessingLabels(true);
-    let updatedLabels = [...labels];
+    const updatedLabels = [...labels];
     let muelleIdx = 0;
     
-    // Rastreador de bultos del pedido actual
-    let remainingPackagesForCurrentOrder = 0;
-    let currentMuelleOrder: MuelleData | null = null;
+    const finalizeGroup = (indices: number[], mIdx: number) => {
+      if (indices.length === 0 || mIdx >= muelleData.length) return;
+      const order = muelleData[mIdx];
+      const total = indices.length;
+      indices.forEach((idx, i) => {
+        updatedLabels[idx].matchedOrderNumber = order.orderNumber;
+        updatedLabels[idx].packageInfo = `${i + 1} de ${total}`;
+        updatedLabels[idx].status = 'success';
+      });
+    };
+
+    let currentGroupIndices: number[] = [];
 
     for (let i = 0; i < updatedLabels.length; i++) {
-      const label = updatedLabels[i];
       setOcrProgress({ 
-        status: `Procesando etiqueta ${i + 1} de ${updatedLabels.length}...`, 
+        status: `Procesando bultos... (${i + 1}/${updatedLabels.length})`, 
         progress: Math.round(((i + 1)/updatedLabels.length)*100) 
       });
 
-      // 1. Detectar si la etiqueta tiene información de bultos (X of Y)
-      let qtyResult: [number, number] | null = null;
-      if (labelRules?.pkgQtyArea) {
-        try {
-          const qtyRes = await cropImage(label.imageUrl, labelRules.pkgQtyArea, labelRules.imageRotation || 0, 'ultra-sharp');
-          if (typeof qtyRes !== 'string') {
-            const qtyText = await performCharacterOCR(qtyRes.chars);
-            qtyResult = parsePackageQty(qtyText);
-          }
-        } catch (e) {
-          console.warn("Fallo lectura bultos en etiqueta", i);
+      const label = updatedLabels[i];
+      const isUPS = isUpsLabel(label.rawOcrText || '');
+      const isSO = isSeurOrOntime(label.rawOcrText || '');
+
+      const bc = labelRules?.barcodeArea 
+        ? await scanDataMatrix(label.imageUrl, labelRules.barcodeArea, labelRules.imageRotation || 0)
+        : null;
+
+      if (bc) {
+        updatedLabels[i].rawBarcodeText = bc.text;
+        if (bc.parsedData) {
+          // Si el DataMatrix se lee, mandamos esta referencia a la tarjeta
+          updatedLabels[i].extractedAmazonRef = bc.parsedData.ref;
         }
       }
 
-      // 2. Determinar qué pedido del muelle le toca
-      
-      // Si todavía nos quedan bultos del pedido anterior, se los asignamos a esta etiqueta
-      if (remainingPackagesForCurrentOrder > 0 && currentMuelleOrder) {
-        updatedLabels[i] = { 
-          ...label, 
-          status: 'success',
-          matchedOrderNumber: currentMuelleOrder.orderNumber,
-          extractedAmazonRef: currentMuelleOrder.amazonRef,
-          packageInfo: qtyResult ? `${qtyResult[0]} de ${qtyResult[1]}` : 'Bulto siguiente'
-        };
-        remainingPackagesForCurrentOrder--;
-      } 
-      // Si no quedan bultos pendientes, saltamos al siguiente pedido del muelle
-      else {
-        if (muelleIdx < muelleData.length) {
-          currentMuelleOrder = muelleData[muelleIdx];
-          
-          updatedLabels[i] = { 
-            ...label, 
-            status: 'success',
-            matchedOrderNumber: currentMuelleOrder.orderNumber,
-            extractedAmazonRef: currentMuelleOrder.amazonRef,
-            packageInfo: qtyResult ? `${qtyResult[0]} de ${qtyResult[1]}` : '1 de 1'
-          };
+      let isNewOrderTrigger = false;
 
-          // Si el OCR leyó que es un "1 de 3", calculamos que quedan 2 etiquetas más para este mismo pedido
-          if (qtyResult && qtyResult[1] > 1 && qtyResult[0] === 1) {
-            remainingPackagesForCurrentOrder = qtyResult[1] - 1;
-          } else {
-            remainingPackagesForCurrentOrder = 0;
+      if (i === 0) {
+        isNewOrderTrigger = false; 
+      } else {
+        // Si el código de barras dice que es bulto 002 o más, no puede ser un nuevo pedido
+        if (bc?.parsedData && bc.parsedData.seq > 1) {
+          isNewOrderTrigger = false;
+        } 
+        else if (isUPS) {
+          let qty: [number, number] | null = null;
+          if (labelRules?.pkgQtyArea) {
+            const qtyRes = await cropImage(label.imageUrl, labelRules.pkgQtyArea, labelRules.imageRotation || 0, 'ultra-sharp');
+            if (typeof qtyRes !== 'string') {
+              const qtyText = await performCharacterOCR(qtyRes.chars);
+              qty = parsePackageQty(qtyText);
+            }
           }
-          
-          muelleIdx++; // Avanzamos en el muelle
-        } else {
-          // Si se acaba el muelle antes que las etiquetas
-          updatedLabels[i] = { ...label, status: 'error', error: 'Muelle agotado' };
+          if (qty && qty[0] === 1) isNewOrderTrigger = true;
+          else if (!qty) isNewOrderTrigger = true; 
+        } 
+        else if (isSO || bc?.parsedData) {
+          if (bc?.parsedData?.seq === 1) isNewOrderTrigger = true;
+          else isNewOrderTrigger = false; 
+        } 
+        else {
+          isNewOrderTrigger = true;
         }
       }
 
-      // Actualizar UI en cada paso para feedback visual
-      setLabels([...updatedLabels]);
+      if (isNewOrderTrigger && currentGroupIndices.length > 0) {
+        finalizeGroup(currentGroupIndices, muelleIdx);
+        muelleIdx++;
+        currentGroupIndices = [];
+      }
+
+      currentGroupIndices.push(i);
+      if (i % 3 === 0) setLabels([...updatedLabels]);
     }
 
+    finalizeGroup(currentGroupIndices, muelleIdx);
+    setLabels([...updatedLabels]);
     setOcrProgress(null);
     setIsProcessingLabels(false);
   }, [labels, muelleData, isProcessingLabels, labelRules]);
@@ -188,12 +202,22 @@ const App: React.FC = () => {
             </div>
             <div>
               <h1 className="text-xl font-black uppercase tracking-tighter">GD Etiquetas</h1>
-              <p className="text-indigo-400 text-[10px] font-bold uppercase tracking-widest">Sánchez Giner I S.A. | Cruce Secuencial</p>
+              <p className="text-indigo-400 text-[10px] font-bold uppercase tracking-widest">Sánchez Giner I S.A. | Automatización Inteligente</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={resetAll} className="px-4 py-2 text-sm font-black bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition-colors uppercase tracking-widest text-[10px]">Reiniciar</button>
-            {summary.matched > 0 && <button onClick={() => setShowPrintMode(true)} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-black shadow-lg hover:bg-indigo-500 transition-all uppercase tracking-widest text-xs">IMPRIMIR ({summary.matched})</button>}
+            <button 
+              type="button"
+              onClick={resetAll} 
+              className="px-6 py-3 text-sm font-black bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-lg transition-all uppercase tracking-widest text-[11px]"
+            >
+              Reiniciar Sistema
+            </button>
+            {summary.matched > 0 && (
+              <button onClick={() => setShowPrintMode(true)} className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-black shadow-lg hover:bg-indigo-500 transition-all uppercase tracking-widest text-xs">
+                IMPRIMIR ({summary.matched})
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -201,12 +225,17 @@ const App: React.FC = () => {
       <main className="max-w-6xl mx-auto px-4 space-y-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="flex flex-col gap-6">
-            <MuelleUploader onDataLoaded={handleMuelleLoaded} isLoading={isProcessingMuelle} onLoadingChange={setIsProcessingMuelle} />
+            <MuelleUploader 
+              key={`muelle-${resetKey}`}
+              onDataLoaded={handleMuelleLoaded} 
+              isLoading={isProcessingMuelle} 
+              onLoadingChange={setIsProcessingMuelle} 
+            />
             
             {muelleData.length > 0 && (
               <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex-1">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Listado de Muelle ({muelleData.length})</h3>
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Muelle ({muelleData.length})</h3>
                   <button onClick={() => setMuelleData([])} className="text-[10px] text-red-500 font-bold uppercase hover:underline">Limpiar</button>
                 </div>
                 <div className="max-h-[300px] overflow-y-auto space-y-2 custom-scrollbar pr-2">
@@ -225,14 +254,18 @@ const App: React.FC = () => {
           </div>
 
           <div className="space-y-4">
-            <LabelUploader onFilesSelected={handleLabelsSelected} disabled={isProcessingMuelle} />
+            <LabelUploader 
+              key={`labels-${resetKey}`}
+              onFilesSelected={handleLabelsSelected} 
+              disabled={isProcessingMuelle} 
+            />
             {labelRules && (
               <div className="flex items-center justify-between px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="text-[10px] font-black text-indigo-700 uppercase">Zonas de visión configuradas</span>
+                  <span className="text-[10px] font-black text-indigo-700 uppercase">Visión de etiquetas activa</span>
                 </div>
-                <button onClick={() => setShowLabelConfig(true)} className="text-[10px] font-black text-indigo-600 uppercase hover:underline">Reajustar</button>
+                <button onClick={() => setShowLabelConfig(true)} className="text-[10px] font-black text-indigo-600 uppercase hover:underline">Reajustar Zonas</button>
               </div>
             )}
           </div>
@@ -253,7 +286,7 @@ const App: React.FC = () => {
         {labels.length > 0 && !ocrProgress && (
           <div className="flex flex-col md:flex-row items-center justify-between p-8 bg-white border border-slate-200 rounded-3xl shadow-xl gap-6">
             <div className="flex gap-10">
-              <div className="text-center"><p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Etiquetas</p><p className="text-3xl font-black">{summary.total}</p></div>
+              <div className="text-center"><p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Total Etiquetas</p><p className="text-3xl font-black">{summary.total}</p></div>
               <div className="text-center">
                 <p className="text-[10px] text-green-500 font-bold uppercase mb-1">Cruzadas</p>
                 <p className="text-3xl font-black text-green-600">{summary.matched}</p>
@@ -265,9 +298,9 @@ const App: React.FC = () => {
                   disabled={muelleData.length === 0 || labels.length === 0}
                   className="px-16 py-5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black shadow-2xl transition-all uppercase tracking-widest transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                  Iniciar Cruce Secuencial
+                  Ejecutar Cruce Secuencial
               </button>
-              <p className="text-[9px] font-black text-indigo-400 uppercase tracking-tighter">Asigna el muelle por orden de aparición</p>
+              <p className="text-[9px] font-black text-indigo-400 uppercase tracking-tighter">Regla: DataMatrix 001 = Nuevo Pedido | 002+ = Mismo Pedido</p>
             </div>
           </div>
         )}
@@ -287,14 +320,11 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-[600] bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
-              <div>
-                <h2 className="font-black text-xl text-slate-900 uppercase">Cambiar Pedido Manual</h2>
-              </div>
+              <h2 className="font-black text-xl text-slate-900 uppercase">Cambio Manual de Pedido</h2>
               <button onClick={() => setResolvingLabel(null)} className="p-2 hover:bg-slate-200 rounded-full">
                 <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            
             <div className="flex-1 overflow-auto p-6 space-y-3 custom-scrollbar">
               {muelleData.slice(0, 50).map((m, i) => (
                   <button 
@@ -306,7 +336,7 @@ const App: React.FC = () => {
                       <p className="text-xl font-black text-slate-900">#{m.orderNumber}</p>
                       <p className="text-xs font-mono text-slate-500">{m.amazonRef}</p>
                     </div>
-                    <span className="text-[10px] font-black text-indigo-400 uppercase">Posición {i+1}</span>
+                    <span className="text-[10px] font-black text-indigo-400 uppercase">Pos. {i+1}</span>
                   </button>
               ))}
             </div>
