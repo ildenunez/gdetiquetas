@@ -5,113 +5,156 @@ const BLACKLIST_REFS = [
   'AMAZON', 'HTTPS', 'HTTP', 'SHIPMENT', 'PACKAGE', 'LABEL', 'CHECK', 'WEIGHT', 
   'BILLING', 'VENDORCENTRAL', 'REF', 'REFERENCE', 'UPS', 'TRACKING',
   'NO.1', 'NO.2', 'NUMBER', 'SHIPTO', 'FROM', 'CUSTOMER', 'XOL', 'BILLING', 'DATE', 'EDI',
-  'CLIENTE', 'PEDIDOCLIENTE', 'Nº.', 'S.A.', 'Giner', 'Sánchez'
+  'CLIENTE', 'PEDIDOCLIENTE', 'Nº.', 'S.A.', 'GINER', 'SANCHEZ', 'OF', 'PKG', 'REFERENCIA',
+  'SÁNCHEZ', 'GINER I S.A.', 'S.L.', 'RUTAS', 'PEDIDO', 'TRACKING#'
 ];
 
-/**
- * Normalización ULTRA-ROBUSTA para cruces.
- * Convierte caracteres similares para evitar fallos por mala calidad de impresión.
- */
-export const normalizeForMatch = (str: string): string => {
-  if (!str) return "";
-  return str.toUpperCase()
-    .trim()
-    .replace(/\s+/g, '')       
-    // Corregimos confusiones visuales típicas del OCR
-    .replace(/[OQD]/g, '0')   
-    .replace(/[ILJT|]/g, '1') 
-    .replace(/[S]/g, '5')     
-    .replace(/[B]/g, '8')     
-    .replace(/[Z]/g, '2')     
-    .replace(/[G]/g, '6')     
-    .replace(/[UV]/g, 'U')     
-    .replace(/[^A-Z0-9]/g, ''); 
+export const isUpsLabel = (text: string): boolean => {
+  if (!text) return false;
+  const t = text.toUpperCase();
+  // Detección más agresiva de UPS: por nombre o por formato de tracking típico 1Z...
+  return (
+    t.includes('UPS') || 
+    t.includes('UNITED PARCEL') || 
+    t.includes('UNITEDPARCEL') ||
+    /\b1Z[A-Z0-9]{16}\b/.test(t) ||
+    t.includes('WORLDSHIP')
+  );
 };
 
-/**
- * Limpieza de referencia con lógica de Amazon.
- */
+export const parsePackageQty = (text: string): [number, number] | null => {
+  if (!text) return null;
+  let clean = text.toUpperCase()
+    .replace(/(\d)0F(\d)/g, '$1 OF $2')
+    .replace(/(\d)DF(\d)/g, '$1 OF $2')
+    .replace(/[^0-9/OF]/g, ' ')
+    .trim();
+    
+  const match = clean.match(/(\d+)\s*(?:OF|\/)\s*(\d+)/);
+  if (match) return [parseInt(match[1]), parseInt(match[2])];
+  
+  const partialMatch = clean.match(/(\d+)\s*(?:OF|\/)/);
+  if (partialMatch) return [parseInt(partialMatch[1]), 0];
+  
+  return null;
+};
+
+export const normalizeForMatch = (str: string): string => {
+  if (!str) return "";
+  return str.trim()
+    .replace(/\s+/g, '')
+    .replace(/[oOQDG]/g, '0')   
+    .replace(/[iILJT|]/g, '1') 
+    .replace(/[sS]/g, '5')     
+    .replace(/[zZ]/g, '2')     
+    .replace(/[eEGB]/g, '6') 
+    .replace(/[g]/g, 'q')
+    .replace(/[yY]/g, '9')
+    .toUpperCase(); 
+};
+
 export const cleanAmazonRef = (text: string, isFromDedicatedArea: boolean = false): string | null => {
   if (!text) return null;
+  // Limpiamos caracteres raros pero mantenemos letras y números
+  let cleanStr = text.replace(/[^A-Za-z0-9]/g, ' ').trim();
+  const words = cleanStr.split(/\s+/).filter(w => w.length >= (isFromDedicatedArea ? 2 : 4));
 
-  // Eliminamos ruidos comunes de etiquetas de envío
-  const cleanStr = text.replace(/^(REF\s*1|REFERENCE\s*1|REF|:)\s*/i, '').trim();
-  const words = cleanStr.split(/[\s,;:]+/).filter(w => w.length >= 4);
-
-  // 1. Patrón FBA (El más común y seguro)
+  // Prioridad 1: Patrones conocidos de Amazon
   for (const word of words) {
-    if (word.toUpperCase().startsWith('FBA') && word.length >= 7) return word.toUpperCase();
+    const w = word.toUpperCase();
+    if (w.startsWith('FBA') && w.length >= 7) return w;
+    if (w.startsWith('X00') && w.length >= 7) return w;
   }
 
-  // 2. Patrón Alfanumérico Amazon
-  const amazonPattern = /^[A-Z0-9]{8,14}$/;
+  // Prioridad 2: Palabras alfanuméricas que no estén en la lista negra
   for (const word of words) {
-    const uWord = word.toUpperCase();
-    if (amazonPattern.test(uWord) && /[A-Z]/.test(uWord) && /[0-9]/.test(uWord)) {
-      if (!BLACKLIST_REFS.includes(uWord)) return uWord;
+    if (/[a-zA-Z]/.test(word) && /[0-9]/.test(word)) {
+       if (!BLACKLIST_REFS.some(b => word.toUpperCase().includes(b))) return word;
     }
   }
 
-  return isFromDedicatedArea && words.length > 0 ? words[0].toUpperCase() : null;
+  // Si viene de una zona dedicada, ser muy permisivo
+  if (isFromDedicatedArea && words.length > 0) {
+    const sorted = words
+      .filter(w => !BLACKLIST_REFS.some(b => w.toUpperCase().includes(b)))
+      .sort((a,b) => b.length - a.length);
+    return sorted.length > 0 ? sorted[0] : null;
+  }
+  
+  return null;
+};
+
+export const parseAmazonLabelLocal = (text: string): { amazonRef: string | null } => {
+  return {
+    amazonRef: cleanAmazonRef(text)
+  };
 };
 
 export const tokenizeText = (rawItems: any[]): RawToken[] => {
   if (!rawItems || rawItems.length === 0) return [];
-  const thresholdY = 5;
+  
+  const thresholdY = 10; 
   const lines: Record<number, any[]> = {};
+  
   rawItems.forEach(item => {
     const y = Math.round(item.y / thresholdY) * thresholdY;
     if (!lines[y]) lines[y] = [];
     lines[y].push(item);
   });
+
   const sortedY = Object.keys(lines).map(Number).sort((a, b) => b - a);
   const tokens: RawToken[] = [];
+
   sortedY.forEach((y, lIdx) => {
     const lineItems = lines[y].sort((a, b) => a.x - b.x);
     lineItems.forEach((item, tIdx) => {
       const text = item.str.trim();
       if (text.length > 0) {
         tokens.push({
-          text: text.toUpperCase(),
+          text: text,
           lineIndex: lIdx,
           tokenIndex: tIdx,
           x: item.x,
           y: item.y,
           width: item.width,
-          height: item.height || item.fontSize || 10
+          height: item.height || 10
         });
       }
     });
   });
-  return tokens;
-};
 
-export const parseAmazonLabelLocal = (text: string): { amazonRef: string | null; packageInfo: string | null } => {
-  if (!text) return { amazonRef: null, packageInfo: null };
-  return { amazonRef: cleanAmazonRef(text), packageInfo: null };
+  return tokens;
 };
 
 export const extractBySpatialRange = (allTokens: RawToken[], orderSample: RawToken, refSample: RawToken): MuelleData[] => {
   const results: MuelleData[] = [];
-  const tolerance = 25;
-  const orderRange = { min: orderSample.x - tolerance, max: orderSample.x + orderSample.width + tolerance };
-  const refRange = { min: refSample.x - tolerance, max: refSample.x + refSample.width + tolerance };
-  const linesMap: Record<number, RawToken[]> = {};
+  const tolerance = 40; 
+  const orderX = orderSample.x;
+  const refX = refSample.x;
+  
+  const lines: Record<number, RawToken[]> = {};
   allTokens.forEach(t => {
-    if (!linesMap[t.lineIndex]) linesMap[t.lineIndex] = [];
-    linesMap[t.lineIndex].push(t);
+    const ly = Math.round(t.y / 10) * 10;
+    if (!lines[ly]) lines[ly] = [];
+    lines[ly].push(t);
   });
-  Object.values(linesMap).forEach(lineTokens => {
-    const orderTokensInLine = lineTokens.filter(t => (t.x >= orderRange.min && t.x <= orderRange.max));
-    const orderFullText = orderTokensInLine.map(t => t.text).join("").trim();
-    const orderMatch = orderFullText.match(/(24|25|26|27|28|29)\d+/);
-    const orderClean = orderMatch ? orderMatch[0] : (orderFullText.length >= 5 && !BLACKLIST_REFS.some(b => orderFullText.includes(b)) ? orderFullText : null);
-    const refTokensInLine = lineTokens.filter(t => (t.x >= refRange.min && t.x <= refRange.max));
-    const refRaw = refTokensInLine.map(t => t.text).join(" ").trim();
-    const refClean = cleanAmazonRef(refRaw, true);
-    if (orderClean && refClean && !BLACKLIST_REFS.includes(orderClean)) {
-      results.push({ orderNumber: orderClean, amazonRef: refClean });
+
+  Object.values(lines).forEach(lineTokens => {
+    const orderToken = lineTokens.find(t => Math.abs(t.x - orderX) < tolerance);
+    const refToken = lineTokens.find(t => Math.abs(t.x - refX) < tolerance);
+
+    if (orderToken && refToken) {
+      const orderNumMatch = orderToken.text.replace(/\s+/g, '').match(/\d{4,}/);
+      const refClean = cleanAmazonRef(refToken.text, true);
+
+      if (orderNumMatch && refClean && !BLACKLIST_REFS.some(b => orderToken.text.toUpperCase().includes(b))) {
+        results.push({
+          orderNumber: orderNumMatch[0],
+          amazonRef: refClean
+        });
+      }
     }
   });
+
   return results;
 };

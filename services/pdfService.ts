@@ -23,7 +23,8 @@ export const convertPdfToImages = async (file: File): Promise<PdfPageResult[]> =
     }));
 
     const viewportBase = page.getViewport({ scale: 1.0 });
-    const viewport = page.getViewport({ scale: 5.0 }); // Alta resolución
+    // ESCALA 4.0: Óptima para PDF vectorial sin generar ruido excesivo
+    const viewport = page.getViewport({ scale: 4.0 }); 
     
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
@@ -31,11 +32,13 @@ export const convertPdfToImages = async (file: File): Promise<PdfPageResult[]> =
       canvas.height = viewport.height;
       canvas.width = viewport.width;
       
-      context.imageSmoothingEnabled = false;
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
+      
       await page.render({ canvasContext: context, viewport }).promise;
       
       results.push({
-        imageUrl: canvas.toDataURL('image/jpeg', 1.0),
+        imageUrl: canvas.toDataURL('image/jpeg', 0.95),
         pageNumber: i,
         textContent: processedItems,
         width: viewportBase.width,
