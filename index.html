@@ -11,22 +11,22 @@
     <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
-        // SHIM: Solo definimos process si no existe, sin machacar posibles claves inyectadas
-        if (typeof window.process === 'undefined') {
-            window.process = { env: { API_KEY: "" } };
-        }
+        // SHIM: Define process.env sin sobreescribir valores existentes
+        window.process = window.process || { env: {} };
     </script>
     <style>
         body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; }
         #root:empty::before {
-            content: "Iniciando sistema...";
+            content: "Iniciando sistema logístico...";
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
-            color: #6366f1;
-            font-weight: bold;
-            font-size: 1.2rem;
+            color: #4f46e5;
+            font-weight: 800;
+            font-size: 1.1rem;
+            letter-spacing: -0.025em;
+            text-transform: uppercase;
         }
         
         @media print {

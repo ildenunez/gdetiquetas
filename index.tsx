@@ -5,9 +5,7 @@ import App from './App.tsx';
 
 const rootElement = document.getElementById('root');
 
-if (!rootElement) {
-  console.error("No se encontró el elemento root");
-} else {
+if (rootElement) {
   try {
     const root = createRoot(rootElement);
     root.render(
@@ -16,12 +14,10 @@ if (!rootElement) {
       </React.StrictMode>
     );
   } catch (error) {
-    console.error("Error crítico al renderizar React:", error);
-    if (rootElement) {
-      rootElement.innerHTML = `<div style="padding: 40px; color: #ef4444; font-family: sans-serif;">
-        <h1 style="font-weight: bold;">Error de Carga</h1>
-        <p>No se pudo iniciar React. Detalles: ${error instanceof Error ? error.message : 'Error desconocido'}</p>
-      </div>`;
-    }
+    console.error("Error al iniciar la aplicación:", error);
+    rootElement.innerHTML = `<div style="padding: 2rem; color: #ef4444; font-family: sans-serif;">
+      <h1 style="font-size: 1.5rem; font-weight: 900;">ERROR DE CARGA</h1>
+      <p>La aplicación no pudo iniciarse. Detalles en la consola (F12).</p>
+    </div>`;
   }
 }
