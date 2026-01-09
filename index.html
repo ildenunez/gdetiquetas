@@ -10,9 +10,6 @@
     <script src="https://unpkg.com/tesseract.js@v5.0.5/dist/tesseract.min.js"></script>
     <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script>
-      window.process = { env: { API_KEY: "" } };
-    </script>
     <style>
         body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; }
         #root:empty::before {
@@ -25,7 +22,6 @@
             font-weight: bold;
         }
         
-        /* Reglas Críticas de Impresión */
         @media print {
             .no-print { display: none !important; }
             html, body { 
