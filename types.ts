@@ -7,6 +7,9 @@ export interface MuelleData {
 export interface LabelRules {
   pkgArea: { x: number; y: number; w: number; h: number };
   barcodeArea: { x: number; y: number; w: number; h: number };
+  ocrArea?: { x: number; y: number; w: number; h: number };
+  useOcr?: boolean;
+  imageRotation?: number; // 0, 90, 180, 270
 }
 
 export interface ProcessedLabel {
@@ -25,18 +28,14 @@ export interface ProcessedLabel {
 }
 
 export interface OverlayConfig {
-  // Posición del texto del pedido
   x: number; 
   y: number;
   fontSize: number;
   rotation: number;
-  
-  // Configuración de la "Cámara" sobre la etiqueta
   zoom: number;
   panX: number;
   panY: number;
   imageRotation: number;
-  
   color: string;
 }
 
@@ -54,4 +53,6 @@ export interface PdfPageResult {
   imageUrl: string;
   pageNumber: number;
   textContent: any[]; 
+  width: number;  // Dimensión real en puntos PDF
+  height: number; // Dimensión real en puntos PDF
 }

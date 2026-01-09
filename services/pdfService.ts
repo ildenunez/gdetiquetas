@@ -22,22 +22,24 @@ export const convertPdfToImages = async (file: File): Promise<PdfPageResult[]> =
       height: item.transform[0]
     }));
 
-    // Escala 5.0: Esto genera una imagen de alta densidad necesaria para DataMatrix pequeños
-    const viewport = page.getViewport({ scale: 5.0 });
+    const viewportBase = page.getViewport({ scale: 1.0 });
+    const viewport = page.getViewport({ scale: 5.0 }); // Alta resolución
+    
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
     if (context) {
       canvas.height = viewport.height;
       canvas.width = viewport.width;
       
-      // Optimizaciones de renderizado para nitidez técnica
       context.imageSmoothingEnabled = false;
       await page.render({ canvasContext: context, viewport }).promise;
       
       results.push({
         imageUrl: canvas.toDataURL('image/jpeg', 1.0),
         pageNumber: i,
-        textContent: processedItems
+        textContent: processedItems,
+        width: viewportBase.width,
+        height: viewportBase.height
       });
     }
   }

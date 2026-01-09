@@ -29,10 +29,10 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
   const rotations = [0, 90, 180, 270];
 
   return (
-    <div className="fixed inset-0 bg-[#0f172a] z-[1000] flex flex-col print:absolute print:inset-0 print:bg-white print:z-0">
+    <div className="fixed inset-0 bg-[#0f172a] z-[1000] flex flex-col print:relative print:bg-white print:inset-auto">
       
       {/* PANEL DE CONTROL - OCULTO AL IMPRIMIR */}
-      <header className="h-20 bg-slate-900 border-b border-slate-700 flex items-center justify-between px-8 shrink-0 no-print shadow-2xl">
+      <header className="h-20 bg-slate-900 border-b border-slate-700 flex items-center justify-between px-8 shrink-0 print:hidden shadow-2xl">
         <div className="flex items-center gap-4">
           <button onClick={onClose} className="p-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700">
              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
@@ -54,7 +54,7 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
       <div className="flex-1 flex overflow-hidden print:block print:overflow-visible">
         
         {/* SIDEBAR - OCULTO AL IMPRIMIR */}
-        <aside className="w-72 bg-slate-900 border-r border-slate-800 p-6 overflow-y-auto no-print space-y-8">
+        <aside className="w-72 bg-slate-900 border-r border-slate-800 p-6 overflow-y-auto print:hidden space-y-8">
           <section className="space-y-4">
             <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Ajuste de Cámara</h3>
             <div className="space-y-4">
@@ -91,7 +91,7 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
             {matchedLabels.map((label) => (
               <div 
                 key={label.id} 
-                className="label-page relative bg-white shadow-2xl print:shadow-none print:m-0 overflow-hidden"
+                className="label-page relative bg-white shadow-2xl print:shadow-none print:border-none overflow-hidden"
                 style={{
                   width: '400px', 
                   height: '600px', 
@@ -128,7 +128,7 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
                       style={{ 
                         fontSize: `${config.fontSize}px`, 
                         lineHeight: '0.7',
-                        background: 'white', // Fondo blanco solo para tapar lo que haya debajo, sin recuadro
+                        background: 'white',
                         padding: '0 10px'
                       }}
                     >
@@ -159,13 +159,19 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
           .label-page { border: 1px solid rgba(255,255,255,0.1); }
         }
         @media print {
-          body * { visibility: hidden; }
-          #root { display: none !important; }
-          .fixed, .no-print { display: none !important; }
+          /* Asegurar que el contenedor sea visible */
+          html, body, #root {
+            visibility: visible !important;
+            display: block !important;
+            height: auto !important;
+            background: white !important;
+          }
           
-          .print\\:block, .print\\:block * { visibility: visible; }
-          .print\\:block { position: absolute; left: 0; top: 0; width: 100%; }
-          
+          /* Ocultar todo lo demás excepto el área de impresión */
+          .fixed > *:not(.flex-1), header, aside {
+            display: none !important;
+          }
+
           .label-page {
             width: 100mm !important;
             height: 150mm !important;
@@ -174,9 +180,12 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
             position: relative !important;
             display: block !important;
             margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
           }
+
           .label-page img {
-            image-rendering: auto;
+            image-rendering: pixelated; /* Mejor para térmicas con códigos */
           }
         }
       `}</style>

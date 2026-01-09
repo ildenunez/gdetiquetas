@@ -8,154 +8,152 @@ export interface BarcodeResult {
 }
 
 interface CropArea {
-  x: number; // 0-1
-  y: number; // 0-1
-  w: number; // 0-1
-  h: number; // 0-1
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
+type OCRFilterType = 'high-contrast' | 'inverted' | 'bold' | 'ultra-sharp' | 'clean-bg';
+
 /**
- * Recorta un área de la imagen basada en porcentajes 0-1
+ * Detecta el área útil de una imagen (donde hay contenido) ignorando los bordes blancos/vacíos.
  */
-export async function cropImage(url: string, area: CropArea): Promise<string> {
+export async function detectContentArea(imageUrl: string): Promise<CropArea> {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      // Añadimos un pequeño margen de seguridad
-      const margin = 0.02;
-      const x = Math.max(0, area.x - margin) * img.width;
-      const y = Math.max(0, area.y - margin) * img.height;
-      const w = Math.min(1, area.w + margin * 2) * img.width;
-      const h = Math.min(1, area.h + margin * 2) * img.height;
-
-      canvas.width = w;
-      canvas.height = h;
       const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/png'));
-      } else resolve(url);
-    };
-    img.src = url;
-  });
-}
+      if (!ctx) return resolve({ x: 0, y: 0, w: 1, h: 1 });
+      
+      canvas.width = 200; // Baja resolución para análisis rápido
+      canvas.height = Math.round(200 * (img.height / img.width));
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      
+      let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0;
+      let found = false;
 
-/**
- * Escanea un DataMatrix, permitiendo recortar un área específica de la imagen original
- */
-export const scanDataMatrix = async (imageUrl: string, crop?: CropArea): Promise<BarcodeResult | null> => {
-  const reader = new ZXing.BrowserDatamatrixCodeReader();
-  
-  const sourceUrl = crop ? await cropImage(imageUrl, crop) : imageUrl;
-  
-  const strategies = [
-    { name: 'Original/Recorte', filter: null },
-    { name: 'Nitidez Extrema', filter: sharpenAndContrast },
-    { name: 'Binarización ISO', filter: aggressiveBinarization },
-    { name: 'Inversión Táctica', filter: invertColors }
-  ];
-
-  for (const strategy of strategies) {
-    try {
-      const processedUrl = strategy.filter 
-        ? await applyFilter(sourceUrl, strategy.filter)
-        : sourceUrl;
-        
-      const result = await reader.decodeFromImageUrl(processedUrl);
-      if (result && result.text) {
-        return { 
-          text: result.text, 
-          format: 'DATA_MATRIX',
-          debugImage: processedUrl 
-        };
-      }
-    } catch (e) {
-    }
-  }
-
-  return null;
-};
-
-async function applyFilter(url: string, filterFn: (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => void): Promise<string> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(img, 0, 0);
-        filterFn(ctx, canvas);
-        resolve(canvas.toDataURL('image/png'));
-      } else resolve(url);
-    };
-    img.src = url;
-  });
-}
-
-function sharpenAndContrast(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) {
-  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imgData.data;
-  const weights = [0, -1, 0, -1, 5, -1, 0, -1, 0];
-  const side = 3;
-  const halfSide = 1;
-  const output = ctx.createImageData(canvas.width, canvas.height);
-  const dst = output.data;
-
-  for (let y = 0; y < canvas.height; y++) {
-    for (let x = 0; x < canvas.width; x++) {
-      const dstOff = (y * canvas.width + x) * 4;
-      let r = 0, g = 0, b = 0;
-      for (let cy = 0; cy < side; cy++) {
-        for (let cx = 0; cx < side; cx++) {
-          const scy = y + cy - halfSide;
-          const scx = x + cx - halfSide;
-          if (scy >= 0 && scy < canvas.height && scx >= 0 && scx < canvas.width) {
-            const srcOff = (scy * canvas.width + scx) * 4;
-            const wt = weights[cy * side + cx];
-            r += data[srcOff] * wt;
-            g += data[srcOff + 1] * wt;
-            b += data[srcOff + 2] * wt;
+      for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
+          const i = (y * canvas.width + x) * 4;
+          // Si el píxel no es blanco (o muy cercano al blanco)
+          if (data[i] < 240 || data[i+1] < 240 || data[i+2] < 240) {
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+            found = true;
           }
         }
       }
-      const gray = (r + g + b) / 3;
-      const val = gray > 120 ? 255 : 0;
-      dst[dstOff] = dst[dstOff+1] = dst[dstOff+2] = val;
-      dst[dstOff+3] = 255;
-    }
-  }
-  ctx.putImageData(output, 0, 0);
+
+      if (!found) return resolve({ x: 0, y: 0, w: 1, h: 1 });
+
+      // Añadimos un pequeño margen
+      const padding = 2;
+      resolve({
+        x: Math.max(0, (minX - padding) / canvas.width),
+        y: Math.max(0, (minY - padding) / canvas.height),
+        w: Math.min(1, (maxX - minX + padding * 2) / canvas.width),
+        h: Math.min(1, (maxY - minY + padding * 2) / canvas.height)
+      });
+    };
+    img.src = imageUrl;
+  });
 }
 
-function aggressiveBinarization(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) {
-  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imgData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-    data[i] = data[i+1] = data[i+2] = avg > 110 ? 255 : 0;
-  }
-  ctx.putImageData(imgData, 0, 0);
+export async function cropImage(url: string, area: CropArea, rotation: number = 0, filter: OCRFilterType = 'high-contrast'): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const is90Or270 = rotation === 90 || rotation === 270;
+      const rotW = is90Or270 ? img.height : img.width;
+      const rotH = is90Or270 ? img.width : img.height;
+      
+      const rotatedCanvas = document.createElement('canvas');
+      rotatedCanvas.width = rotW;
+      rotatedCanvas.height = rotH;
+      const rCtx = rotatedCanvas.getContext('2d');
+      if (!rCtx) return resolve(url);
+
+      rCtx.translate(rotW / 2, rotH / 2);
+      rCtx.rotate((rotation * Math.PI) / 180);
+      rCtx.drawImage(img, -img.width / 2, -img.height / 2);
+
+      const realX = area.x * rotW;
+      const realY = area.y * rotH;
+      const realW = area.w * rotW;
+      const realH = area.h * rotH;
+
+      const scale = 4.0; 
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = realW * scale;
+      finalCanvas.height = realH * scale;
+      const fCtx = finalCanvas.getContext('2d');
+      
+      if (fCtx) {
+        fCtx.imageSmoothingEnabled = true;
+        fCtx.drawImage(rotatedCanvas, realX, realY, realW, realH, 0, 0, finalCanvas.width, finalCanvas.height);
+        applyMorphologicalFilters(fCtx, finalCanvas, filter);
+        resolve(finalCanvas.toDataURL('image/png', 1.0));
+      } else resolve(url);
+    };
+    img.src = url;
+  });
 }
 
-function invertColors(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) {
-  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imgData.data;
+function applyMorphologicalFilters(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, filter: OCRFilterType) {
+  const { width, height } = canvas;
+  let imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  
   for (let i = 0; i < data.length; i += 4) {
-    data[i] = 255 - data[i];
-    data[i+1] = 255 - data[i+1];
-    data[i+2] = 255 - data[i+2];
+    let gray = (data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114);
+    if (filter === 'inverted') gray = 255 - gray;
+    data[i] = data[i+1] = data[i+2] = gray;
   }
-  ctx.putImageData(imgData, 0, 0);
+
+  const contrast = 70;
+  const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = factor * (data[i] - 128) + 128;
+    data[i+1] = factor * (data[i+1] - 128) + 128;
+    data[i+2] = factor * (data[i+2] - 128) + 128;
+  }
+
+  const threshold = 170;
+  for (let i = 0; i < data.length; i += 4) {
+    const v = data[i];
+    const color = v < threshold ? 0 : 255;
+    data[i] = data[i+1] = data[i+2] = color;
+  }
+  
+  ctx.putImageData(imageData, 0, 0);
 }
+
+export const scanDataMatrix = async (imageUrl: string, crop?: CropArea, rotation: number = 0): Promise<BarcodeResult | null> => {
+  const reader = new ZXing.BrowserMultiFormatReader();
+  const filters: OCRFilterType[] = ['high-contrast', 'ultra-sharp'];
+  
+  for (const filter of filters) {
+    const sourceUrl = crop ? await cropImage(imageUrl, crop, rotation, filter) : imageUrl;
+    try {
+      const result = await reader.decodeFromImageUrl(sourceUrl);
+      if (result && result.text) {
+        return { text: result.text, format: result.format.toString(), debugImage: sourceUrl };
+      }
+    } catch (e) {}
+  }
+  return null;
+};
 
 export const extractAmazonRefFromBarcode = (barcodeText: string): string | null => {
-  if (!barcodeText || barcodeText.length < 10) return null;
-  const cleanStart = barcodeText.trim();
-  const result = cleanStart.substring(1, 10);
-  return result.toUpperCase();
+  if (!barcodeText || barcodeText.length < 5) return null;
+  return barcodeText.toUpperCase().trim();
 };
