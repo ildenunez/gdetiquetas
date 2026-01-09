@@ -11,13 +11,15 @@
     <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
-        // SHIM CRÍTICO: Define 'process' para evitar errores al evaluar los módulos de Gemini
-        window.process = { env: { API_KEY: "" } };
+        // SHIM: Solo definimos process si no existe, sin machacar posibles claves inyectadas
+        if (typeof window.process === 'undefined') {
+            window.process = { env: { API_KEY: "" } };
+        }
     </script>
     <style>
         body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; }
         #root:empty::before {
-            content: "Iniciando sistema de visión...";
+            content: "Iniciando sistema...";
             display: flex;
             justify-content: center;
             align-items: center;
@@ -25,7 +27,6 @@
             color: #6366f1;
             font-weight: bold;
             font-size: 1.2rem;
-            letter-spacing: -0.025em;
         }
         
         @media print {

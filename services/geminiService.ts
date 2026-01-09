@@ -1,13 +1,13 @@
 
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 /**
  * Utiliza Gemini Vision con un prompt ultra-específico para logística de Amazon/UPS.
  */
 export const extractRefWithVision = async (base64Image: string): Promise<string | null> => {
   try {
+    // Inicializamos dentro de la función para asegurar que el entorno esté listo
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const base64Data = base64Image.split(',')[1] || base64Image;
 
     const response = await ai.models.generateContent({
@@ -37,16 +37,15 @@ export const extractRefWithVision = async (base64Image: string): Promise<string 
         },
       ],
       config: {
-        temperature: 0.1, // Casi determinista para evitar inventiva
+        temperature: 0.1,
         topP: 0.1,
-        thinkingConfig: { thinkingBudget: 0 } // Velocidad máxima, sin razonamiento extendido
+        thinkingConfig: { thinkingBudget: 0 }
       }
     });
 
     const result = response.text?.trim().toUpperCase();
     if (!result || result.includes('NULL') || result.length < 3) return null;
     
-    // Limpieza rápida de prefijos comunes que la IA a veces incluye por error
     return result.replace(/^(REF|REFERENCE|REF1|REF\s1|:)\s*/, '').trim();
   } catch (error) {
     console.error("Error en Gemini Vision:", error);
