@@ -25,7 +25,7 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
   const rotations = [0, 90, 180, 270];
 
   return (
-    <div className="fixed inset-0 bg-[#0f172a] z-[1000] flex flex-col print:relative print:bg-white print:inset-auto">
+    <div className="fixed inset-0 bg-[#0f172a] z-[1000] flex flex-col print:relative print:bg-white print:inset-auto print:flex-none print:block print:overflow-visible">
       <header className="h-20 bg-slate-900 border-b border-slate-700 flex items-center justify-between px-8 shrink-0 print:hidden shadow-2xl">
         <div className="flex items-center gap-4">
           <button onClick={onClose} className="p-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700">
@@ -60,9 +60,9 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
         </aside>
 
         <main className="flex-1 overflow-y-auto p-12 bg-slate-950 print:p-0 print:bg-white print:overflow-visible">
-          <div className="flex flex-col gap-20 items-center print:gap-0 print:block">
+          <div className="flex flex-col gap-20 items-center print:gap-0 print:block print:overflow-visible">
             {matchedLabels.map((label) => (
-              <div key={label.id} className="label-page relative bg-white shadow-2xl print:shadow-none overflow-hidden" style={{ width: '400px', height: '600px' }}>
+              <div key={label.id} className="label-page relative bg-white shadow-2xl print:shadow-none overflow-hidden print:overflow-hidden" style={{ width: '400px', height: '600px' }}>
                 <div className="absolute inset-0 origin-center" style={{ transform: `scale(${config.zoom}) translate(${config.panX + 50}%, ${config.panY + 50}%)` }}>
                   <img src={label.imageUrl} className="w-full h-auto block" style={{ transform: `rotate(${config.imageRotation}deg)`, transformOrigin: 'center center' }} />
                 </div>
@@ -80,14 +80,24 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
       </div>
       <style>{`
         @media print {
-          @page { size: 100mm 150mm; margin: 0; }
-          html, body { background: white !important; margin: 0 !important; }
+          @page { 
+            size: 100mm 150mm; 
+            margin: 0; 
+          }
+          html, body { 
+            background: white !important; 
+            margin: 0 !important; 
+            overflow: visible !important; 
+            height: auto !important; 
+          }
           .label-page { 
             width: 100mm !important; 
             height: 150mm !important; 
             page-break-after: always !important; 
+            break-after: page !important;
             position: relative !important; 
             margin: 0 !important; 
+            display: block !important;
           }
         }
       `}</style>

@@ -133,17 +133,16 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
               </button>
             </div>
 
-            {/* Contenedor del PDF con scroll horizontal y vertical garantizado */}
             <div className="flex-1 overflow-auto p-4 md:p-12 bg-slate-900 flex justify-start items-start custom-scrollbar">
-              <div className="relative bg-white shadow-[0_0_100px_rgba(0,0,0,0.5)] border-8 border-slate-800 rounded-lg overflow-hidden shrink-0" style={{ width: '1200px' }}>
+              <div className="relative bg-white shadow-[0_0_100px_rgba(0,0,0,0.5)] border-8 border-slate-800 rounded-lg overflow-hidden shrink-0" style={{ width: '100%', minWidth: '1000px' }}>
                 <img src={pageData.imageUrl} className="w-full block pointer-events-none select-none" />
                 <div className="absolute inset-0 z-50">
                   {tokens.map((token, idx) => {
                     const isOrder = selectedOrder === token;
                     const isRef = selectedRef === token;
                     
-                    // Cálculo de coordenadas PDF -> CSS
-                    // token.y es la línea base (bottom), así que para CSS 'top' necesitamos (height - y - tokenHeight)
+                    // Cálculo de coordenadas PDF -> CSS basado en el viewport de PDF.js
+                    // y es bottom-up en PDF, así que top = 100 - (y+h)/totalH * 100
                     const left = (token.x / pageData.width) * 100;
                     const top = ((pageData.height - token.y - (token.height || 10)) / pageData.height) * 100;
                     const width = (token.width / pageData.width) * 100;
