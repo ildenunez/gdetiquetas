@@ -47,7 +47,6 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
       onLoadingChange(true);
       let allResults: MuelleData[] = [];
       allPagesData.forEach(page => {
-        // Al extraer, bultosSample es null para simplificar
         const results = extractBySpatialRange(tokenizeText(page.textContent), selectedOrder, selectedRef, null);
         allResults = [...allResults, ...results];
       });
@@ -58,7 +57,7 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
       );
       
       if (uniqueResults.length === 0) {
-        alert("No se detectaron datos válidos. Intenta seleccionar otra línea de ejemplo.");
+        alert("No se detectaron datos. Intenta seleccionar otra línea de ejemplo.");
       } else {
         onDataLoaded(uniqueResults);
         setShowPicker(false);
@@ -82,7 +81,7 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
       </div>
 
       {loadedCount === 0 ? (
-        <label className={`relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-xl cursor-pointer transition-all ${isLoading ? 'bg-indigo-50 border-indigo-300' : 'bg-slate-50 border-slate-300 hover:bg-slate-100 hover:border-indigo-400'}`}>
+        <label className={`relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-xl cursor-pointer transition-all ${isLoading ? 'bg-indigo-50 border-indigo-300' : 'bg-slate-50 border-slate-300 hover:bg-slate-100'}`}>
           <div className="flex flex-col items-center justify-center text-center p-4">
             {isLoading ? (
               <div className="animate-spin rounded-full h-10 w-10 border-4 border-indigo-600 border-t-transparent mx-auto"></div>
@@ -90,7 +89,6 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
               <>
                 <svg className="w-10 h-10 text-slate-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                 <p className="text-sm text-slate-600 font-black uppercase tracking-widest">Subir Muelle (PDF)</p>
-                <p className="text-[10px] text-slate-400 mt-2 font-medium">Extraeremos pedidos y referencias de Amazon automáticamente</p>
               </>
             )}
           </div>
@@ -98,7 +96,7 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
         </label>
       ) : (
         <div className="flex-1 overflow-hidden flex flex-col border border-slate-100 rounded-xl bg-slate-50">
-          <div className="grid grid-cols-12 gap-2 p-3 bg-slate-800 text-[10px] font-black uppercase text-slate-300 tracking-wider">
+          <div className="grid grid-cols-12 gap-2 p-3 bg-slate-800 text-[10px] font-black uppercase text-slate-300">
             <div className="col-span-5">Pedido</div>
             <div className="col-span-7">Ref. Amazon</div>
           </div>
@@ -115,62 +113,61 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
 
       {showPicker && pageData && (
         <div className="fixed inset-0 bg-slate-950/98 z-[2000] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-[2rem] w-full max-w-7xl h-[92vh] flex flex-col overflow-hidden shadow-2xl border border-white/20">
+          <div className="bg-white rounded-[2rem] w-full max-w-[95vw] h-[92vh] flex flex-col overflow-hidden shadow-2xl">
             <div className="p-8 bg-slate-50 border-b flex justify-between items-center shrink-0">
               <div className="flex items-center gap-6">
-                <div className="bg-indigo-600 text-white p-2 rounded-xl shadow-lg">
+                <div className="bg-indigo-600 text-white p-2 rounded-xl shadow-lg shadow-indigo-600/30">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 01.553-.894L9 2m0 18l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>
                 </div>
                 <div>
                   <h4 className="font-black text-2xl text-slate-900 uppercase tracking-tighter">Mapeador de Muelle</h4>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Selecciona el pedido y la referencia en la misma línea</p>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Selecciona el pedido y la referencia</p>
                 </div>
                 <div className="flex gap-2 ml-4">
-                  <StepBadge active={step === 'order'} done={!!selectedOrder} label="1. Seleccionar Pedido" />
-                  <StepBadge active={step === 'ref'} done={!!selectedRef} label="2. Seleccionar Referencia" />
+                  <StepBadge active={step === 'order'} done={!!selectedOrder} label="1. Pedido" />
+                  <StepBadge active={step === 'ref'} done={!!selectedRef} label="2. Referencia" />
                 </div>
               </div>
-              <button onClick={() => setShowPicker(false)} className="bg-slate-200 hover:bg-red-500 hover:text-white p-2 rounded-full transition-all">
+              <button onClick={() => setShowPicker(false)} className="bg-slate-200 hover:bg-red-500 hover:text-white p-2 rounded-full transition-all duration-300">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
 
-            <div className="flex-1 overflow-auto p-12 bg-slate-900 flex justify-center custom-scrollbar">
-              <div className="relative bg-white shadow-2xl border-8 border-slate-800 rounded-lg overflow-hidden" style={{ width: 'fit-content', height: 'fit-content' }}>
-                <img src={pageData.imageUrl} className="max-w-none block pointer-events-none select-none" style={{ width: '1200px' }} />
+            {/* Contenedor del PDF con scroll horizontal y vertical garantizado */}
+            <div className="flex-1 overflow-auto p-4 md:p-12 bg-slate-900 flex justify-start items-start custom-scrollbar">
+              <div className="relative bg-white shadow-[0_0_100px_rgba(0,0,0,0.5)] border-8 border-slate-800 rounded-lg overflow-hidden shrink-0" style={{ width: '1200px' }}>
+                <img src={pageData.imageUrl} className="w-full block pointer-events-none select-none" />
                 <div className="absolute inset-0 z-50">
                   {tokens.map((token, idx) => {
                     const isOrder = selectedOrder === token;
                     const isRef = selectedRef === token;
                     
-                    // Cálculo de coordenadas PDF (y es bottom-up)
-                    // Para posicionar arriba, restamos el alto del token de la posición superior
+                    // Cálculo de coordenadas PDF -> CSS
+                    // token.y es la línea base (bottom), así que para CSS 'top' necesitamos (height - y - tokenHeight)
                     const left = (token.x / pageData.width) * 100;
-                    const hFactor = (token.height / pageData.height) * 100;
-                    const top = (1 - ((token.y + token.height) / pageData.height)) * 100;
+                    const top = ((pageData.height - token.y - (token.height || 10)) / pageData.height) * 100;
                     const width = (token.width / pageData.width) * 100;
+                    const height = ((token.height || 10) / pageData.height) * 100;
                     
                     return (
                       <button
                         key={idx}
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={() => {
                           if (step === 'order') { setSelectedOrder(token); setStep('ref'); }
                           else { setSelectedRef(token); }
                         }}
-                        className={`absolute flex items-center justify-center text-[7px] font-mono border-2 transition-all ${
-                          isOrder ? 'bg-indigo-600 text-white border-white scale-110 z-[100] shadow-xl' :
-                          isRef ? 'bg-orange-500 text-white border-white scale-110 z-[100] shadow-xl' :
+                        className={`absolute flex items-center justify-center text-[7px] font-mono border transition-all duration-200 ${
+                          isOrder ? 'bg-indigo-600 text-white border-white scale-125 z-[100] shadow-xl' :
+                          isRef ? 'bg-orange-500 text-white border-white scale-125 z-[100] shadow-xl' :
                           'bg-indigo-600/5 text-transparent border-transparent hover:bg-indigo-500/30 hover:border-indigo-500'
                         }`}
                         style={{ 
                           left: `${left}%`, 
                           top: `${top}%`, 
-                          width: `${width + 0.2}%`, 
-                          height: `${hFactor + 0.5}%`,
+                          width: `${width}%`, 
+                          height: `${height}%`, 
                           borderRadius: '1px'
                         }}
-                        title={token.text}
                       >
                         {token.text}
                       </button>
@@ -187,7 +184,7 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
               </div>
               <div className="flex gap-6">
                 <button onClick={() => { setSelectedOrder(null); setSelectedRef(null); setStep('order'); }} className="text-slate-500 font-black uppercase text-[11px] tracking-widest hover:text-slate-900 transition-colors">Reiniciar</button>
-                <button disabled={!selectedOrder || !selectedRef} onClick={confirmSelection} className="px-16 py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black shadow-2xl hover:bg-indigo-700 hover:scale-105 disabled:opacity-20 disabled:grayscale transition-all uppercase tracking-widest text-sm">
+                <button disabled={!selectedOrder || !selectedRef} onClick={confirmSelection} className="px-16 py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black shadow-2xl shadow-indigo-600/30 hover:bg-indigo-700 hover:scale-105 disabled:opacity-20 disabled:grayscale transition-all uppercase tracking-widest text-sm">
                   Procesar Listado
                 </button>
               </div>
@@ -200,11 +197,11 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
 };
 
 const StepBadge: React.FC<{ active: boolean, done: boolean, label: string }> = ({ active, done, label }) => (
-  <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-    active ? 'bg-indigo-600 border-indigo-500 text-white scale-105 shadow-lg' : 
+  <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border-2 transition-all duration-300 flex items-center gap-2 ${
+    active ? 'bg-indigo-600 border-indigo-500 text-white scale-110 shadow-lg' : 
     done ? 'bg-green-100 border-green-200 text-green-600' : 'bg-slate-200 border-slate-300 text-slate-500'
   }`}>
-    {done && <svg className="w-3 h-3 inline mr-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
+    {done && <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
     {label}
   </div>
 );
@@ -215,9 +212,9 @@ const SelectedBox: React.FC<{ label: string, value?: string, color: string }> = 
     orange: 'border-orange-600 bg-orange-50 text-orange-700 shadow-orange-100'
   };
   return (
-    <div className={`p-4 rounded-2xl border-2 min-w-[180px] shadow-lg transition-all ${value ? `${colorMap[color]} scale-105` : 'border-slate-100 bg-slate-50 text-slate-300'}`}>
+    <div className={`p-4 rounded-2xl border-2 min-w-[180px] shadow-lg transition-all transform ${value ? `${colorMap[color]} scale-105` : 'border-slate-100 bg-slate-50 text-slate-300'}`}>
       <p className="text-[8px] font-black uppercase tracking-widest mb-1 opacity-60">{label}</p>
-      <p className="font-mono text-[11px] font-black truncate">{value || 'Pendiente'}</p>
+      <p className="font-mono text-[11px] font-black truncate">{value || 'Esperando...'}</p>
     </div>
   );
 };

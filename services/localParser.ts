@@ -9,29 +9,20 @@ export const isSeurOrOntime = (text: string): boolean => {
 
 export const normalizeForMatch = (str: string): string => {
   if (!str) return "";
-  return str.trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '');
+  return str.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 };
 
 export const cleanAmazonRef = (text: string): string | null => {
   if (!text) return null;
   let cleanStr = text.replace(/[^A-Za-z0-9]/g, ' ').trim();
   const words = cleanStr.split(/\s+/).filter(w => w.length >= 4);
-
-  // 1. Patrón exacto de 9 caracteres (ej: TCX1SXxy9)
   for (const word of words) {
-    if (word.length === 9 && /[A-Za-z]/.test(word) && /[0-9]/.test(word)) {
-      return word;
-    }
+    if (word.length === 9 && /[A-Za-z]/.test(word) && /[0-9]/.test(word)) return word;
   }
-
-  // 2. Patrones FBA/X00
   for (const word of words) {
     const w = word.toUpperCase();
     if (w.startsWith('FBA') || w.startsWith('X00')) return word;
   }
-  
   return null;
 };
 
@@ -48,14 +39,12 @@ export const parsePackageQty = (text: string): [number, number] | null => {
 };
 
 export const parseAmazonLabelLocal = (text: string): { amazonRef: string | null } => {
-  return {
-    amazonRef: cleanAmazonRef(text)
-  };
+  return { amazonRef: cleanAmazonRef(text) };
 };
 
 export const tokenizeText = (rawItems: any[]): RawToken[] => {
   if (!rawItems || rawItems.length === 0) return [];
-  const thresholdY = 5; 
+  const thresholdY = 3; 
   const lines: Record<number, any[]> = {};
   rawItems.forEach(item => {
     const y = Math.round(item.y / thresholdY) * thresholdY;
@@ -91,14 +80,13 @@ export const extractBySpatialRange = (
   bultosSample?: RawToken | null
 ): MuelleData[] => {
   const results: MuelleData[] = [];
-  const tolerance = 40; // Aumentado para mayor flexibilidad
+  const toleranceX = 15; // Tolerancia horizontal reducida para no pisar otras columnas
   const orderX = orderSample.x;
   const refX = refSample.x;
-  const bultosX = bultosSample ? bultosSample.x : null;
   
   const lines: Record<number, RawToken[]> = {};
   allTokens.forEach(t => {
-    const ly = Math.round(t.y / 10) * 10; // Agrupamiento por líneas más permisivo
+    const ly = Math.round(t.y / 8) * 8; 
     if (!lines[ly]) lines[ly] = [];
     lines[ly].push(t);
   });
@@ -106,7 +94,7 @@ export const extractBySpatialRange = (
   Object.values(lines).forEach(lineTokens => {
     const findClosest = (targetX: number) => {
       let closest = null;
-      let minDiff = tolerance;
+      let minDiff = toleranceX;
       for (const t of lineTokens) {
         const diff = Math.abs(t.x - targetX);
         if (diff < minDiff) {
@@ -119,24 +107,16 @@ export const extractBySpatialRange = (
 
     const oToken = findClosest(orderX);
     const rToken = findClosest(refX);
-    const bToken = bultosX !== null ? findClosest(bultosX) : null;
 
     if (oToken && rToken) {
-      // Limpiamos el pedido de bultos o sufijos raros
       const orderNum = oToken.text.replace(/[^0-9]/g, '');
       const refVal = rToken.text.trim();
-      let bultosVal = 1;
-
-      if (bToken) {
-        const bMatch = bToken.text.match(/\d+/);
-        if (bMatch) bultosVal = parseInt(bMatch[0], 10);
-      }
       
       if (orderNum.length >= 4 && refVal.length >= 4) {
         results.push({ 
           orderNumber: orderNum, 
           amazonRef: refVal,
-          totalBultos: bultosVal
+          totalBultos: 1
         });
       }
     }
