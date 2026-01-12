@@ -2,15 +2,16 @@
 export interface MuelleData {
   amazonRef: string;
   orderNumber: string;
+  totalBultos: number;
 }
 
 export interface LabelRules {
   pkgArea: { x: number; y: number; w: number; h: number };
   barcodeArea: { x: number; y: number; w: number; h: number };
   ocrArea?: { x: number; y: number; w: number; h: number };
-  pkgQtyArea?: { x: number; y: number; w: number; h: number }; // Nueva zona para "1 of X"
+  pkgQtyArea?: { x: number; y: number; w: number; h: number }; 
   useOcr?: boolean;
-  imageRotation?: number; // 0, 90, 180, 270
+  imageRotation?: number; 
 }
 
 export interface MatchCandidate {
@@ -24,18 +25,19 @@ export interface ProcessedLabel {
   originalFileName: string;
   pageNumber: number;
   extractedAmazonRef: string | null;
+  matchedAmazonRef?: string | null;
   rawBarcodeText?: string | null; 
   rawOcrText?: string | null;     
-  packageInfo: string | null;
+  packageInfo: string | null; // Guardará "1 de 32", etc.
   matchedOrderNumber: string | null;
-  matchConfidence?: number; // % de efectividad
-  matchCandidates?: MatchCandidate[]; // Para resolución manual
+  matchConfidence?: number; 
+  matchCandidates?: MatchCandidate[]; 
   imageUrl: string;
   status: 'pending' | 'processing' | 'success' | 'error' | 'ambiguous';
   error?: string;
   _debugBarcodeImg?: string; 
   _debugOcrImg?: string;     
-  _debugQtyImg?: string; // Debug para la zona de bultos
+  _debugQtyImg?: string; 
 }
 
 export interface OverlayConfig {

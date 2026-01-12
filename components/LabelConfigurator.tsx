@@ -92,7 +92,8 @@ const LabelConfigurator: React.FC<LabelConfiguratorProps> = ({ pageData, onSave,
           const qty = parsePackageQty(text);
           setTestResult({ text: qty ? `Bulto ${qty[0]} de ${qty[1]}` : `Leído: ${text}`, type: 'qty', debugImg: sourceUrl });
         } else {
-          const cleaned = cleanAmazonRef(text, true);
+          // Fix: cleanAmazonRef only takes 1 argument, corrected call on line 95
+          const cleaned = cleanAmazonRef(text);
           setTestResult({ text: cleaned || `Bruto: ${text}`, type: 'ocr', debugImg: sourceUrl });
         }
       } else {

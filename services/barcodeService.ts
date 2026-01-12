@@ -9,6 +9,7 @@ export interface BarcodeResult {
   parsedData?: {
     ref: string;
     seq: number;
+    totalFromBarcode?: number;
   };
 }
 
@@ -22,25 +23,45 @@ interface CropArea {
 export type OCRFilterType = 'high-contrast' | 'inverted' | 'bold' | 'ultra-sharp' | 'clean-bg' | 'raw' | 'grayscale' | 'threshold';
 
 /**
- * Extrae la referencia de Amazon y el bulto del DataMatrix:
- * - Ref: caracteres 2 al 10 (9 caracteres) -> Índices 1 al 10
- * - Seq: caracteres 12 al 14 (Número de bulto actual) -> Índices 11 al 14
+ * Extrae la referencia de Amazon y bultos del contenido del DataMatrix.
+ * Formato específico solicitado:
+ * - Si empieza por S: Ref = caracteres en posiciones 1 a 9 (omitiendo la S en pos 0).
+ * - Bultos = caracteres en posiciones 12, 13 y 14.
  */
-export const extractAmazonRefFromBarcode = (text: string): { ref: string; seq: number } | null => {
-  if (!text || text.length < 10) return null;
+export const extractAmazonRefFromBarcode = (text: string): { ref: string; seq: number; totalFromBarcode?: number } | null => {
+  if (!text) return null;
   
-  // Ref: caracteres 2 al 10
-  const ref = text.substring(1, 10).toUpperCase();
-  
-  // Seq: caracteres 12 al 14 (indica qué bulto es: 001, 002...)
-  let seq = 1;
-  if (text.length >= 14) {
-    const seqStr = text.substring(11, 14);
-    const parsedSeq = parseInt(seqStr, 10);
-    if (!isNaN(parsedSeq)) seq = parsedSeq;
+  // Limpiamos caracteres de control GS (0x1D) y otros habituales en DataMatrix
+  const cleanedText = text.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+
+  // Lógica específica para Seur/Ontime con prefijo 'S'
+  if (cleanedText.startsWith('S') && cleanedText.length >= 15) {
+    const ref = cleanedText.substring(1, 10).toUpperCase(); // Posiciones 1 a 10 (9 caracteres)
+    const bultosStr = cleanedText.substring(12, 15); // Posiciones 12 a 15 (caracteres 12, 13, 14)
+    const total = parseInt(bultosStr, 10);
+    
+    return { 
+      ref, 
+      seq: 1, 
+      totalFromBarcode: !isNaN(total) ? total : undefined 
+    };
   }
-  
-  return { ref, seq };
+
+  // Fallback para otros formatos (FBA/X00)
+  const fbaMatch = cleanedText.match(/(FBA[A-Z0-9]{6,10})|(X00[A-Z0-9]{6,10})/i);
+  if (fbaMatch) {
+    return { ref: fbaMatch[0].toUpperCase(), seq: 1 };
+  }
+
+  // Fallback genérico de 9 caracteres alfanuméricos
+  const words = cleanedText.split(/[^A-Za-z0-9]/);
+  for (const word of words) {
+    if (word.length === 9 && /[A-Za-z]/.test(word) && /[0-9]/.test(word)) {
+      return { ref: word.toUpperCase(), seq: 1 };
+    }
+  }
+
+  return null;
 };
 
 export async function cropImage(url: string, area: CropArea, rotation: number = 0, filter: OCRFilterType = 'ultra-sharp'): Promise<string | { strip: string, chars: string[] }> {
@@ -88,16 +109,15 @@ export async function cropImage(url: string, area: CropArea, rotation: number = 
           fCtx.drawImage(finalCanvas, 0, 0);
           resolve(finalCanvas.toDataURL('image/png'));
         } else if (filter === 'high-contrast') {
-          fCtx.filter = 'contrast(300%) grayscale(100%) brightness(110%)';
+          fCtx.filter = 'contrast(350%) grayscale(100%) brightness(110%)';
           fCtx.drawImage(finalCanvas, 0, 0);
           resolve(finalCanvas.toDataURL('image/png'));
         } else if (filter === 'threshold') {
-          // Umbral binario puro para códigos difíciles
           const imgData = fCtx.getImageData(0,0, finalCanvas.width, finalCanvas.height);
           const data = imgData.data;
           for(let i=0; i<data.length; i+=4) {
             const avg = (data[i]+data[i+1]+data[i+2])/3;
-            const v = avg < 128 ? 0 : 255;
+            const v = avg < 120 ? 0 : 255;
             data[i] = data[i+1] = data[i+2] = v;
           }
           fCtx.putImageData(imgData, 0, 0);
@@ -209,9 +229,7 @@ function expandAndSliceCharacters(ctx: CanvasRenderingContext2D, canvas: HTMLCan
 
 export const scanDataMatrix = async (imageUrl: string, crop?: CropArea, rotation: number = 0): Promise<BarcodeResult | null> => {
   const reader = new ZXing.BrowserMultiFormatReader();
-  
-  // Lista exhaustiva de filtros para asegurar lectura
-  const filters: OCRFilterType[] = ['grayscale', 'high-contrast', 'threshold', 'raw'];
+  const filters: OCRFilterType[] = ['raw', 'high-contrast', 'grayscale', 'threshold'];
 
   for (const filter of filters) {
     const res = crop ? await cropImage(imageUrl, { x: crop.x, y: crop.y, w: crop.w, h: crop.h }, rotation, filter) : imageUrl;
@@ -228,9 +246,7 @@ export const scanDataMatrix = async (imageUrl: string, crop?: CropArea, rotation
           parsedData: parsed || undefined
         };
       }
-    } catch (e) {
-      continue;
-    }
+    } catch (e) { }
   }
   return null;
 };

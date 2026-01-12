@@ -19,6 +19,10 @@ const LabelCard: React.FC<LabelCardProps> = ({ label, onResolve }) => {
 
   const confidenceColor = label.matchConfidence === 100 ? 'text-green-600' : label.matchConfidence && label.matchConfidence > 80 ? 'text-indigo-600' : 'text-orange-600';
 
+  // Mostrar la referencia del muelle si hay match, si no la extraída
+  const displayRef = label.matchedAmazonRef || label.extractedAmazonRef || 'SIN LECTURA';
+  const isFromMuelle = !!label.matchedAmazonRef;
+
   return (
     <div className={`bg-white rounded-xl border-2 overflow-hidden shadow-sm flex flex-col group transition-all ${label.status === 'ambiguous' ? 'border-orange-400 animate-pulse-slow' : 'border-slate-200 hover:border-indigo-400'}`}>
       <div className="relative aspect-[3/4] bg-slate-100 overflow-hidden border-b border-slate-100">
@@ -68,10 +72,12 @@ const LabelCard: React.FC<LabelCardProps> = ({ label, onResolve }) => {
               RESOLVER CONFLICTO
             </button>
           ) : (
-            <div className="bg-indigo-50 border border-indigo-100 p-2 rounded-lg">
-               <span className="text-[8px] font-black text-indigo-400 uppercase block mb-1">Cruce detectado:</span>
+            <div className={`p-2 rounded-lg border ${isFromMuelle ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-200'}`}>
+               <span className="text-[8px] font-black text-indigo-400 uppercase block mb-1">
+                {isFromMuelle ? 'Ref. Muelle vinculada:' : 'Referencia detectada:'}
+               </span>
                <span className="font-mono text-[10px] text-indigo-700 font-black block break-all">
-                {label.extractedAmazonRef || 'SIN LECTURA'}
+                {displayRef}
               </span>
             </div>
           )}

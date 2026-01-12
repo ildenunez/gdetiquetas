@@ -1,87 +1,49 @@
 
 import { MuelleData, RawToken } from '../types';
 
-const BLACKLIST_REFS = [
-  'AMAZON', 'HTTPS', 'HTTP', 'SHIPMENT', 'PACKAGE', 'LABEL', 'CHECK', 'WEIGHT', 
-  'BILLING', 'VENDORCENTRAL', 'REF', 'REFERENCE', 'UPS', 'TRACKING',
-  'NO.1', 'NO.2', 'NUMBER', 'SHIPTO', 'FROM', 'CUSTOMER', 'XOL', 'BILLING', 'DATE', 'EDI',
-  'CLIENTE', 'PEDIDOCLIENTE', 'Nº.', 'S.A.', 'GINER', 'SANCHEZ', 'OF', 'PKG', 'REFERENCIA',
-  'SÁNCHEZ', 'GINER I S.A.', 'S.L.', 'RUTAS', 'PEDIDO', 'TRACKING#'
-];
-
-export const isUpsLabel = (text: string): boolean => {
-  if (!text) return false;
-  const t = text.toUpperCase();
-  return (
-    t.includes('UPS') || 
-    t.includes('UNITED PARCEL') || 
-    t.includes('UNITEDPARCEL') ||
-    /\b1Z[A-Z0-9]{16}\b/.test(t) ||
-    t.includes('WORLDSHIP')
-  );
-};
-
 export const isSeurOrOntime = (text: string): boolean => {
   if (!text) return false;
   const t = text.toUpperCase();
-  return t.includes('SEUR') || t.includes('ONTIME');
-};
-
-export const parsePackageQty = (text: string): [number, number] | null => {
-  if (!text) return null;
-  let clean = text.toUpperCase()
-    .replace(/(\d)0F(\d)/g, '$1 OF $2')
-    .replace(/(\d)DF(\d)/g, '$1 OF $2')
-    .replace(/[^0-9/OF]/g, ' ')
-    .trim();
-    
-  const match = clean.match(/(\d+)\s*(?:OF|\/)\s*(\d+)/);
-  if (match) return [parseInt(match[1]), parseInt(match[2])];
-  
-  const partialMatch = clean.match(/(\d+)\s*(?:OF|\/)/);
-  if (partialMatch) return [parseInt(partialMatch[1]), 0];
-  
-  return null;
+  return t.includes('SEUR') || t.includes('ONTIME') || t.includes('REDUR');
 };
 
 export const normalizeForMatch = (str: string): string => {
   if (!str) return "";
   return str.trim()
-    .replace(/\s+/g, '')
-    .replace(/[oOQDG]/g, '0')   
-    .replace(/[iILJT|]/g, '1') 
-    .replace(/[sS]/g, '5')     
-    .replace(/[zZ]/g, '2')     
-    .replace(/[eEGB]/g, '6') 
-    .replace(/[g]/g, 'q')
-    .replace(/[yY]/g, '9')
-    .toUpperCase(); 
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
 };
 
-export const cleanAmazonRef = (text: string, isFromDedicatedArea: boolean = false): string | null => {
+export const cleanAmazonRef = (text: string): string | null => {
   if (!text) return null;
   let cleanStr = text.replace(/[^A-Za-z0-9]/g, ' ').trim();
-  const words = cleanStr.split(/\s+/).filter(w => w.length >= (isFromDedicatedArea ? 2 : 4));
+  const words = cleanStr.split(/\s+/).filter(w => w.length >= 4);
 
+  // 1. Patrón exacto de 9 caracteres (ej: TCX1SXxy9)
   for (const word of words) {
-    const w = word.toUpperCase();
-    if (w.startsWith('FBA') && w.length >= 7) return w;
-    if (w.startsWith('X00') && w.length >= 7) return w;
-  }
-
-  for (const word of words) {
-    if (/[a-zA-Z]/.test(word) && /[0-9]/.test(word)) {
-       if (!BLACKLIST_REFS.some(b => word.toUpperCase().includes(b))) return word;
+    if (word.length === 9 && /[A-Za-z]/.test(word) && /[0-9]/.test(word)) {
+      return word;
     }
   }
 
-  if (isFromDedicatedArea && words.length > 0) {
-    const sorted = words
-      .filter(w => !BLACKLIST_REFS.some(b => w.toUpperCase().includes(b)))
-      .sort((a,b) => b.length - a.length);
-    return sorted.length > 0 ? sorted[0] : null;
+  // 2. Patrones FBA/X00
+  for (const word of words) {
+    const w = word.toUpperCase();
+    if (w.startsWith('FBA') || w.startsWith('X00')) return word;
   }
   
+  return null;
+};
+
+export const parsePackageQty = (text: string): [number, number] | null => {
+  if (!text) return null;
+  const normalized = text.toUpperCase().replace(/\s+/g, ' ');
+  const match = normalized.match(/(\d+)\s*(?:OF|DE|\/)\s*(\d+)/);
+  if (match) {
+    const current = parseInt(match[1], 10);
+    const total = parseInt(match[2], 10);
+    if (!isNaN(current) && !isNaN(total)) return [current, total];
+  }
   return null;
 };
 
@@ -93,19 +55,15 @@ export const parseAmazonLabelLocal = (text: string): { amazonRef: string | null 
 
 export const tokenizeText = (rawItems: any[]): RawToken[] => {
   if (!rawItems || rawItems.length === 0) return [];
-  
-  const thresholdY = 10; 
+  const thresholdY = 5; 
   const lines: Record<number, any[]> = {};
-  
   rawItems.forEach(item => {
     const y = Math.round(item.y / thresholdY) * thresholdY;
     if (!lines[y]) lines[y] = [];
     lines[y].push(item);
   });
-
   const sortedY = Object.keys(lines).map(Number).sort((a, b) => b - a);
   const tokens: RawToken[] = [];
-
   sortedY.forEach((y, lIdx) => {
     const lineItems = lines[y].sort((a, b) => a.x - b.x);
     lineItems.forEach((item, tIdx) => {
@@ -123,39 +81,65 @@ export const tokenizeText = (rawItems: any[]): RawToken[] => {
       }
     });
   });
-
   return tokens;
 };
 
-export const extractBySpatialRange = (allTokens: RawToken[], orderSample: RawToken, refSample: RawToken): MuelleData[] => {
+export const extractBySpatialRange = (
+  allTokens: RawToken[], 
+  orderSample: RawToken, 
+  refSample: RawToken,
+  bultosSample?: RawToken | null
+): MuelleData[] => {
   const results: MuelleData[] = [];
-  const tolerance = 40; 
+  const tolerance = 40; // Aumentado para mayor flexibilidad
   const orderX = orderSample.x;
   const refX = refSample.x;
+  const bultosX = bultosSample ? bultosSample.x : null;
   
   const lines: Record<number, RawToken[]> = {};
   allTokens.forEach(t => {
-    const ly = Math.round(t.y / 10) * 10;
+    const ly = Math.round(t.y / 10) * 10; // Agrupamiento por líneas más permisivo
     if (!lines[ly]) lines[ly] = [];
     lines[ly].push(t);
   });
 
   Object.values(lines).forEach(lineTokens => {
-    const orderToken = lineTokens.find(t => Math.abs(t.x - orderX) < tolerance);
-    const refToken = lineTokens.find(t => Math.abs(t.x - refX) < tolerance);
+    const findClosest = (targetX: number) => {
+      let closest = null;
+      let minDiff = tolerance;
+      for (const t of lineTokens) {
+        const diff = Math.abs(t.x - targetX);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = t;
+        }
+      }
+      return closest;
+    };
 
-    if (orderToken && refToken) {
-      const orderNumMatch = orderToken.text.replace(/\s+/g, '').match(/\d{4,}/);
-      const refClean = cleanAmazonRef(refToken.text, true);
+    const oToken = findClosest(orderX);
+    const rToken = findClosest(refX);
+    const bToken = bultosX !== null ? findClosest(bultosX) : null;
 
-      if (orderNumMatch && refClean && !BLACKLIST_REFS.some(b => orderToken.text.toUpperCase().includes(b))) {
-        results.push({
-          orderNumber: orderNumMatch[0],
-          amazonRef: refClean
+    if (oToken && rToken) {
+      // Limpiamos el pedido de bultos o sufijos raros
+      const orderNum = oToken.text.replace(/[^0-9]/g, '');
+      const refVal = rToken.text.trim();
+      let bultosVal = 1;
+
+      if (bToken) {
+        const bMatch = bToken.text.match(/\d+/);
+        if (bMatch) bultosVal = parseInt(bMatch[0], 10);
+      }
+      
+      if (orderNum.length >= 4 && refVal.length >= 4) {
+        results.push({ 
+          orderNumber: orderNum, 
+          amazonRef: refVal,
+          totalBultos: bultosVal
         });
       }
     }
   });
-
   return results;
 };

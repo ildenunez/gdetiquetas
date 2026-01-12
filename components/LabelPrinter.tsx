@@ -10,7 +10,7 @@ interface LabelPrinterProps {
 const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
   const [config, setConfig] = useState<OverlayConfig>({
     x: 50,
-    y: 90,
+    y: 85,
     fontSize: 90, 
     rotation: 0,
     zoom: 1.5,    
@@ -114,7 +114,7 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
                   />
                 </div>
 
-                {/* EL NÚMERO DE PEDIDO (ZONA INFERIOR) - LIMPIO PARA TÉRMICA */}
+                {/* EL NÚMERO DE PEDIDO (ZONA INFERIOR) - BLOQUE BLANCO TOTAL */}
                 <div 
                   className="absolute left-0 right-0 z-50 flex flex-col items-center justify-center pointer-events-none"
                   style={{
@@ -122,25 +122,22 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
                     transform: 'translateY(-50%)'
                   }}
                 >
-                  <div className="flex flex-col items-center">
+                  <div className="flex flex-col items-center bg-white px-8 py-2 border-y-4 border-white">
                     <div 
-                      className="font-black tracking-tighter text-black"
+                      className="font-black tracking-tighter text-black leading-none"
                       style={{ 
                         fontSize: `${config.fontSize}px`, 
-                        lineHeight: '0.7',
-                        background: 'white',
-                        padding: '0 10px'
+                        background: 'white'
                       }}
                     >
                       {label.matchedOrderNumber}
                     </div>
                     {label.packageInfo && (
                       <div 
-                        className="mt-2 text-black font-black uppercase tracking-widest text-center"
+                        className="mt-1 text-black font-black uppercase tracking-widest text-center"
                         style={{ 
                           fontSize: `${Math.round(config.fontSize * 0.4)}px`,
-                          background: 'white',
-                          padding: '0 5px'
+                          background: 'white'
                         }}
                       >
                         Bulto: {label.packageInfo}
@@ -159,19 +156,15 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
           .label-page { border: 1px solid rgba(255,255,255,0.1); }
         }
         @media print {
-          /* Asegurar que el contenedor sea visible */
           html, body, #root {
             visibility: visible !important;
             display: block !important;
             height: auto !important;
             background: white !important;
           }
-          
-          /* Ocultar todo lo demás excepto el área de impresión */
           .fixed > *:not(.flex-1), header, aside {
             display: none !important;
           }
-
           .label-page {
             width: 100mm !important;
             height: 150mm !important;
@@ -183,9 +176,8 @@ const LabelPrinter: React.FC<LabelPrinterProps> = ({ labels, onClose }) => {
             padding: 0 !important;
             border: none !important;
           }
-
           .label-page img {
-            image-rendering: pixelated; /* Mejor para térmicas con códigos */
+            image-rendering: crisp-edges;
           }
         }
       `}</style>
