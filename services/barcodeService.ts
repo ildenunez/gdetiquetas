@@ -23,16 +23,15 @@ interface CropArea {
 export type OCRFilterType = 'high-contrast' | 'inverted' | 'bold' | 'ultra-sharp' | 'clean-bg' | 'raw' | 'grayscale' | 'threshold';
 
 /**
- * Extrae la referencia de Amazon y el índice de bulto del DataMatrix.
- * - Si empieza por S: Ref = caracteres 1 al 10 (9 chars).
- * - Bulto actual (Secuencia) = caracteres 12 al 14.
+ * Extrae la referencia de Amazon y el índice de bulto del código leído.
+ * Se ha mejorado para detectar referencias en etiquetas UPS (que a veces usan el Nº Pedido en el código).
  */
 export const extractAmazonRefFromBarcode = (text: string): { ref: string; seq: number; totalFromBarcode?: number } | null => {
   if (!text) return null;
   
-  // Limpiar caracteres especiales
-  const cleanedText = text.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+  const cleanedText = text.replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim();
 
+  // 1. Formato Amazon (DataMatrix que empieza por S)
   if (cleanedText.startsWith('S') && cleanedText.length >= 15) {
     const ref = cleanedText.substring(1, 10).toUpperCase(); 
     const seqStr = cleanedText.substring(12, 15); 
@@ -44,14 +43,21 @@ export const extractAmazonRefFromBarcode = (text: string): { ref: string; seq: n
     };
   }
 
-  // Fallbacks
-  const fbaMatch = cleanedText.match(/(FBA[A-Z0-9]{6,10})|(X00[A-Z0-9]{6,10})/i);
+  // 2. Formato FBA / X00 directo
+  const fbaMatch = cleanedText.match(/(FBA[A-Z0-9]{6,12})|(X00[A-Z0-9]{6,12})/i);
   if (fbaMatch) return { ref: fbaMatch[0].toUpperCase(), seq: 1 };
 
+  // 3. Búsqueda de palabras de 8 o 9 caracteres (Ref. Cliente o Nº Pedido)
+  // Esto ayuda en etiquetas UPS/SEUR donde el código contiene el pedido.
   const words = cleanedText.split(/[^A-Za-z0-9]/);
   for (const word of words) {
+    // Si es longitud 9 y mezcla letras/números (Ref Cliente)
     if (word.length === 9 && /[A-Za-z]/.test(word) && /[0-9]/.test(word)) {
       return { ref: word.toUpperCase(), seq: 1 };
+    }
+    // Si es longitud 8 y son solo números (Nº Pedido habitual)
+    if (word.length === 8 && /^\d+$/.test(word)) {
+      return { ref: word, seq: 1 };
     }
   }
 

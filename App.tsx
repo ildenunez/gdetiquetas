@@ -7,9 +7,9 @@ import LabelPrinter from './components/LabelPrinter.tsx';
 import LabelConfigurator from './components/LabelConfigurator.tsx';
 import { MuelleData, ProcessedLabel, LabelRules, PdfPageResult } from './types.ts';
 import { convertPdfToImages } from './services/pdfService.ts';
-import { parseAmazonLabelLocal, tokenizeText, normalizeForMatch, cleanAmazonRef, isSeurOrOntime } from './services/localParser.ts';
+import { parseAmazonLabelLocal, tokenizeText, normalizeForMatch, cleanAmazonRef, isSeurOrOntime, parsePackageQty } from './services/localParser.ts';
 import { cropImage, scanDataMatrix } from './services/barcodeService.ts';
-import { performCharacterOCR } from './services/ocrService.ts';
+import { performCharacterOCR, performLocalOCR } from './services/ocrService.ts';
 
 const App: React.FC = () => {
   const [muelleData, setMuelleData] = useState<MuelleData[]>([]);
@@ -71,60 +71,111 @@ const App: React.FC = () => {
     if (labels.length === 0 || muelleData.length === 0) return;
     setIsProcessingLabels(true);
     const updatedLabels = [...labels];
-    const muelleMap = new Map<string, MuelleData>();
-    muelleData.forEach(m => muelleMap.set(normalizeForMatch(m.amazonRef), m));
+    
+    // Cruce dual inicial: Mapas por Referencia y Pedido
+    const muelleRefMap = new Map<string, MuelleData>();
+    const muelleOrderMap = new Map<string, MuelleData>();
+    muelleData.forEach(m => {
+      muelleRefMap.set(normalizeForMatch(m.amazonRef), m);
+      muelleOrderMap.set(normalizeForMatch(m.orderNumber), m);
+    });
 
-    // Primera pasada: Cruce y extracción de secuencia
-    const labelResults: any[] = [];
     for (let i = 0; i < updatedLabels.length; i++) {
       const currentLabel = updatedLabels[i];
       setOcrProgress({ status: `Analizando ${currentLabel.originalFileName}...`, progress: Math.round(((i + 1)/updatedLabels.length)*100) });
       
-      let foundRef: string | null = null;
+      let foundVal: string | null = null;
+      let foundQty: [number, number] | null = null;
       let barcodeSeq: number = 1;
 
+      // 1. Leer Qty Area (Indispensable para UPS)
+      // OPTIMIZACIÓN: Usamos filtro 'threshold' y lectura de línea completa para evitar fallos de segmentación de bultos
+      if (labelRules?.pkgQtyArea) {
+        const qtyRes = await cropImage(currentLabel.imageUrl, labelRules.pkgQtyArea, labelRules.imageRotation || 0, 'threshold');
+        if (typeof qtyRes === 'string') {
+          updatedLabels[i]._debugQtyImg = qtyRes;
+          const qtyText = await performLocalOCR(qtyRes);
+          foundQty = parsePackageQty(qtyText);
+          updatedLabels[i].packageQty = foundQty;
+        }
+      }
+
+      // 2. Intento por código de barras
       const bcArea = labelRules?.barcodeArea || { x: 0, y: 0, w: 1, h: 1 };
       const bc = await scanDataMatrix(currentLabel.imageUrl, bcArea, labelRules?.imageRotation || 0);
       if (bc) {
         updatedLabels[i]._debugBarcodeImg = bc.debugImage;
         updatedLabels[i].rawBarcodeText = bc.text;
         if (bc.parsedData) {
-          foundRef = bc.parsedData.ref;
+          foundVal = bc.parsedData.ref;
           barcodeSeq = bc.parsedData.seq;
         }
       }
 
-      if (!foundRef && labelRules?.ocrArea) {
+      // 3. Intento por OCR de referencia si falló el código
+      if (!foundVal && labelRules?.ocrArea) {
          const ocrRes = await cropImage(currentLabel.imageUrl, labelRules.ocrArea, labelRules.imageRotation || 0, 'ultra-sharp');
          if (typeof ocrRes !== 'string') {
             updatedLabels[i]._debugOcrImg = ocrRes.strip;
-            foundRef = cleanAmazonRef(await performCharacterOCR(ocrRes.chars));
+            foundVal = cleanAmazonRef(await performCharacterOCR(ocrRes.chars));
          }
       }
-      if (!foundRef) foundRef = currentLabel.extractedAmazonRef;
+      
+      // 4. Intento por texto completo del PDF
+      if (!foundVal) foundVal = currentLabel.extractedAmazonRef;
 
-      if (foundRef) {
-        const match = muelleMap.get(normalizeForMatch(foundRef));
+      // Cruce directo (Referencia o Pedido)
+      if (foundVal) {
+        const normalizedVal = normalizeForMatch(foundVal);
+        let match = muelleRefMap.get(normalizedVal) || muelleOrderMap.get(normalizedVal);
+
         if (match) {
           updatedLabels[i].matchedOrderNumber = match.orderNumber;
           updatedLabels[i].matchedAmazonRef = match.amazonRef;
           updatedLabels[i].status = 'success';
-          updatedLabels[i].extractedAmazonRef = foundRef;
-          // Guardamos temporalmente la secuencia encontrada en el barcode
-          (updatedLabels[i] as any)._barcodeSeq = barcodeSeq;
+          updatedLabels[i].extractedAmazonRef = foundVal;
+          (updatedLabels[i] as any)._barcodeSeq = foundQty ? foundQty[0] : barcodeSeq;
         } else {
-          updatedLabels[i].status = 'error';
-          updatedLabels[i].error = 'No en muelle';
-          updatedLabels[i].extractedAmazonRef = foundRef;
+          updatedLabels[i].extractedAmazonRef = foundVal;
         }
-      } else {
-        updatedLabels[i].status = 'error';
-        updatedLabels[i].error = 'Sin referencia';
       }
       if (i % 2 === 0) setLabels([...updatedLabels]);
     }
 
-    // Segunda pasada: Recalcular totales por pedido
+    // 5. CRUCE SECUENCIAL (Para UPS/Agencias sin lectura clara de referencia)
+    let currentMuelleIdx = 0;
+
+    for (let i = 0; i < updatedLabels.length; i++) {
+      const label = updatedLabels[i];
+      if (label.status === 'success') {
+        const mIdx = muelleData.findIndex(m => m.orderNumber === label.matchedOrderNumber);
+        if (mIdx !== -1) currentMuelleIdx = mIdx;
+        continue;
+      }
+
+      // Cruce por secuencia para UPS/Agencias basado en el bulto leído por OCR
+      if (currentMuelleIdx < muelleData.length) {
+        const mRow = muelleData[currentMuelleIdx];
+        const labelQty = label.packageQty;
+        
+        if (labelQty && labelQty[1] === mRow.totalBultos) {
+          label.matchedOrderNumber = mRow.orderNumber;
+          label.matchedAmazonRef = mRow.amazonRef;
+          label.status = 'success';
+          label.packageInfo = `${labelQty[0]}/${labelQty[1]}`;
+          (label as any)._barcodeSeq = labelQty[0];
+
+          if (labelQty[0] === labelQty[1]) {
+            currentMuelleIdx++;
+          }
+        } else {
+          label.status = 'error';
+          label.error = 'No en muelle';
+        }
+      }
+    }
+
+    // Recalcular info de bultos para los que no la tengan
     const orderGroups = new Map<string, ProcessedLabel[]>();
     updatedLabels.forEach(l => {
       if (l.matchedOrderNumber) {
@@ -136,10 +187,9 @@ const App: React.FC = () => {
 
     orderGroups.forEach((group, orderId) => {
       const total = group.length;
-      // Ordenamos por la secuencia detectada en el barcode para asignar el X de Y correcto
       group.sort((a, b) => ((a as any)._barcodeSeq || 0) - ((b as any)._barcodeSeq || 0));
       group.forEach((label, idx) => {
-        label.packageInfo = `${idx + 1}/${total}`;
+        if (!label.packageInfo) label.packageInfo = `${idx + 1}/${total}`;
       });
     });
 
@@ -148,7 +198,7 @@ const App: React.FC = () => {
     setIsProcessingLabels(false);
   }, [labels, muelleData, labelRules]);
 
-  const resetAll = () => { if (confirm("¿Reiniciar?")) { setLabels([]); setMuelleData([]); setLabelRules(null); setSamplePage(null); setResetKey(prev => prev + 1); } };
+  const resetAll = () => { if (confirm("¿Reiniciar sistema?")) { setLabels([]); setMuelleData([]); setLabelRules(null); setSamplePage(null); setResetKey(prev => prev + 1); } };
 
   if (showPrintMode) return <LabelPrinter labels={labels} onClose={() => setShowPrintMode(false)} />;
 

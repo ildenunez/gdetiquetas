@@ -18,7 +18,8 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
   const [tokens, setTokens] = useState<RawToken[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<RawToken | null>(null);
   const [selectedRef, setSelectedRef] = useState<RawToken | null>(null);
-  const [step, setStep] = useState<'order' | 'ref'>('order');
+  const [selectedBultos, setSelectedBultos] = useState<RawToken | null>(null);
+  const [step, setStep] = useState<'order' | 'ref' | 'bultos'>('order');
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -27,6 +28,7 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
     onLoadingChange(true);
     setSelectedOrder(null);
     setSelectedRef(null);
+    setSelectedBultos(null);
     setStep('order');
     
     try {
@@ -47,7 +49,7 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
       onLoadingChange(true);
       let allResults: MuelleData[] = [];
       allPagesData.forEach(page => {
-        const results = extractBySpatialRange(tokenizeText(page.textContent), selectedOrder, selectedRef, null);
+        const results = extractBySpatialRange(tokenizeText(page.textContent), selectedOrder, selectedRef, selectedBultos);
         allResults = [...allResults, ...results];
       });
       
@@ -97,14 +99,16 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
       ) : (
         <div className="flex-1 overflow-hidden flex flex-col border border-slate-100 rounded-xl bg-slate-50">
           <div className="grid grid-cols-12 gap-2 p-3 bg-slate-800 text-[10px] font-black uppercase text-slate-300">
-            <div className="col-span-5">Pedido</div>
-            <div className="col-span-7">Ref. Amazon</div>
+            <div className="col-span-4">Pedido</div>
+            <div className="col-span-6">Ref. Amazon</div>
+            <div className="col-span-2 text-center">Bultos</div>
           </div>
           <div className="flex-1 overflow-y-auto custom-scrollbar max-h-[300px]">
             {muelleData.map((item, idx) => (
               <div key={idx} className="grid grid-cols-12 gap-2 p-3 border-b border-white text-[11px] font-mono hover:bg-indigo-50 transition-colors">
-                <div className="col-span-5 font-black text-indigo-700">{item.orderNumber}</div>
-                <div className="col-span-7 font-bold text-slate-600 truncate" title={item.amazonRef}>{item.amazonRef}</div>
+                <div className="col-span-4 font-black text-indigo-700">{item.orderNumber}</div>
+                <div className="col-span-6 font-bold text-slate-600 truncate" title={item.amazonRef}>{item.amazonRef}</div>
+                <div className="col-span-2 text-center font-black text-slate-400">{item.totalBultos}</div>
               </div>
             ))}
           </div>
@@ -126,6 +130,7 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
                 <div className="flex gap-2 ml-4">
                   <StepBadge active={step === 'order'} done={!!selectedOrder} label="1. Pedido" />
                   <StepBadge active={step === 'ref'} done={!!selectedRef} label="2. Referencia" />
+                  <StepBadge active={step === 'bultos'} done={!!selectedBultos} label="3. Bultos (Opcional)" />
                 </div>
               </div>
               <button onClick={() => setShowPicker(false)} className="bg-slate-200 hover:bg-red-500 hover:text-white p-2 rounded-full transition-all duration-300">
@@ -134,17 +139,16 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
             </div>
 
             <div className="flex-1 overflow-auto p-4 md:p-12 bg-slate-900 flex justify-start items-start custom-scrollbar">
-              <div className="relative bg-white shadow-[0_0_100px_rgba(0,0,0,0.5)] border-8 border-slate-800 rounded-lg overflow-hidden shrink-0" style={{ width: '100%', minWidth: '1000px' }}>
+              <div className="relative bg-white shadow-[0_0_100px_rgba(0,0,0,0.5)] border-8 border-slate-800 rounded-lg overflow-hidden shrink-0" style={{ width: '1400px' }}>
                 <img src={pageData.imageUrl} className="w-full block pointer-events-none select-none" />
                 <div className="absolute inset-0 z-50">
                   {tokens.map((token, idx) => {
                     const isOrder = selectedOrder === token;
                     const isRef = selectedRef === token;
+                    const isBultos = selectedBultos === token;
                     
-                    // Cálculo de coordenadas PDF -> CSS basado en el viewport de PDF.js
-                    // y es bottom-up en PDF, así que top = 100 - (y+h)/totalH * 100
                     const left = (token.x / pageData.width) * 100;
-                    const top = ((pageData.height - token.y - (token.height || 10)) / pageData.height) * 100;
+                    const top = (1 - (token.y / pageData.height)) * 100;
                     const width = (token.width / pageData.width) * 100;
                     const height = ((token.height || 10) / pageData.height) * 100;
                     
@@ -153,18 +157,20 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
                         key={idx}
                         onClick={() => {
                           if (step === 'order') { setSelectedOrder(token); setStep('ref'); }
-                          else { setSelectedRef(token); }
+                          else if (step === 'ref') { setSelectedRef(token); setStep('bultos'); }
+                          else { setSelectedBultos(token); }
                         }}
                         className={`absolute flex items-center justify-center text-[7px] font-mono border transition-all duration-200 ${
                           isOrder ? 'bg-indigo-600 text-white border-white scale-125 z-[100] shadow-xl' :
                           isRef ? 'bg-orange-500 text-white border-white scale-125 z-[100] shadow-xl' :
+                          isBultos ? 'bg-green-500 text-white border-white scale-125 z-[100] shadow-xl' :
                           'bg-indigo-600/5 text-transparent border-transparent hover:bg-indigo-500/30 hover:border-indigo-500'
                         }`}
                         style={{ 
                           left: `${left}%`, 
-                          top: `${top}%`, 
+                          top: `${top - height}%`, 
                           width: `${width}%`, 
-                          height: `${height}%`, 
+                          height: `${height * 1.5}%`, 
                           borderRadius: '1px'
                         }}
                       >
@@ -180,9 +186,10 @@ const MuelleUploader: React.FC<MuelleUploaderProps> = ({ onDataLoaded, isLoading
               <div className="flex gap-4">
                 <SelectedBox label="Nº Pedido" value={selectedOrder?.text} color="indigo" />
                 <SelectedBox label="Ref. Amazon" value={selectedRef?.text} color="orange" />
+                <SelectedBox label="Col. Bultos" value={selectedBultos?.text} color="green" />
               </div>
               <div className="flex gap-6">
-                <button onClick={() => { setSelectedOrder(null); setSelectedRef(null); setStep('order'); }} className="text-slate-500 font-black uppercase text-[11px] tracking-widest hover:text-slate-900 transition-colors">Reiniciar</button>
+                <button onClick={() => { setSelectedOrder(null); setSelectedRef(null); setSelectedBultos(null); setStep('order'); }} className="text-slate-500 font-black uppercase text-[11px] tracking-widest hover:text-slate-900 transition-colors">Reiniciar</button>
                 <button disabled={!selectedOrder || !selectedRef} onClick={confirmSelection} className="px-16 py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black shadow-2xl shadow-indigo-600/30 hover:bg-indigo-700 hover:scale-105 disabled:opacity-20 disabled:grayscale transition-all uppercase tracking-widest text-sm">
                   Procesar Listado
                 </button>
@@ -208,10 +215,11 @@ const StepBadge: React.FC<{ active: boolean, done: boolean, label: string }> = (
 const SelectedBox: React.FC<{ label: string, value?: string, color: string }> = ({ label, value, color }) => {
   const colorMap: any = {
     indigo: 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-indigo-100',
-    orange: 'border-orange-600 bg-orange-50 text-orange-700 shadow-orange-100'
+    orange: 'border-orange-600 bg-orange-50 text-orange-700 shadow-orange-100',
+    green: 'border-green-600 bg-green-50 text-green-700 shadow-green-100'
   };
   return (
-    <div className={`p-4 rounded-2xl border-2 min-w-[180px] shadow-lg transition-all transform ${value ? `${colorMap[color]} scale-105` : 'border-slate-100 bg-slate-50 text-slate-300'}`}>
+    <div className={`p-4 rounded-2xl border-2 min-w-[150px] shadow-lg transition-all transform ${value ? `${colorMap[color]} scale-105` : 'border-slate-100 bg-slate-50 text-slate-300'}`}>
       <p className="text-[8px] font-black uppercase tracking-widest mb-1 opacity-60">{label}</p>
       <p className="font-mono text-[11px] font-black truncate">{value || 'Esperando...'}</p>
     </div>

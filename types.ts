@@ -29,6 +29,7 @@ export interface ProcessedLabel {
   rawBarcodeText?: string | null; 
   rawOcrText?: string | null;     
   packageInfo: string | null; // Guardará "1 de 32", etc.
+  packageQty?: [number, number] | null; // [actual, total] leídos por OCR
   matchedOrderNumber: string | null;
   matchConfidence?: number; 
   matchCandidates?: MatchCandidate[]; 

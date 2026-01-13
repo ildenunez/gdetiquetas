@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { LabelRules, PdfPageResult, RawToken } from '../types.ts';
 import { cropImage, scanDataMatrix } from '../services/barcodeService.ts';
-import { performCharacterOCR } from '../services/ocrService.ts';
+import { performCharacterOCR, performLocalOCR } from '../services/ocrService.ts';
 import { cleanAmazonRef, parsePackageQty } from '../services/localParser.ts';
 
 interface LabelConfiguratorProps {
@@ -42,7 +42,6 @@ const LabelConfigurator: React.FC<LabelConfiguratorProps> = ({ pageData, onSave,
 
   const is90Or270 = imageRotation === 90 || imageRotation === 270;
   
-  // Base del visor: calculamos dimensiones reales del contenedor rotado
   const baseW = 450 * workspaceZoom;
   const nativeAspect = originalSize.h / originalSize.w;
   
@@ -57,14 +56,14 @@ const LabelConfigurator: React.FC<LabelConfiguratorProps> = ({ pageData, onSave,
 
   useEffect(() => {
     const updatePreview = async () => {
-        let area;
-        if (activeZone === 'ocr') area = ocrArea;
-        else if (activeZone === 'qty') area = qtyArea;
-        else area = barcodeArea;
+        let area, filter;
+        if (activeZone === 'ocr') { area = ocrArea; filter = 'ultra-sharp'; }
+        else if (activeZone === 'qty') { area = qtyArea; filter = 'threshold'; }
+        else { area = barcodeArea; filter = 'ultra-sharp'; }
 
         const res = await cropImage(pageData.imageUrl, 
             { x: area.x / 100, y: area.y / 100, w: area.w / 100, h: area.h / 100 }, 
-            imageRotation, 'ultra-sharp');
+            imageRotation, filter as any);
         
         const sourceUrl = typeof res === 'string' ? res : res.strip;
         setCropPreview(sourceUrl);
@@ -82,19 +81,19 @@ const LabelConfigurator: React.FC<LabelConfiguratorProps> = ({ pageData, onSave,
       else if (activeZone === 'qty') { area = qtyArea; mode = 'qty'; }
       else { area = barcodeArea; mode = 'barcode'; }
 
-      if (mode === 'ocr' || mode === 'qty') {
-        const res = await cropImage(pageData.imageUrl, { x: area.x / 100, y: area.y / 100, w: area.w / 100, h: area.h / 100 }, imageRotation, 'ultra-sharp');
-        const sourceUrl = typeof res === 'string' ? res : res.strip;
-        const charImages = typeof res === 'string' ? [] : res.chars;
-        const text = await performCharacterOCR(charImages);
-        
-        if (mode === 'qty') {
+      if (mode === 'qty') {
+        const res = await cropImage(pageData.imageUrl, { x: area.x / 100, y: area.y / 100, w: area.w / 100, h: area.h / 100 }, imageRotation, 'threshold');
+        if (typeof res === 'string') {
+          const text = await performLocalOCR(res);
           const qty = parsePackageQty(text);
-          setTestResult({ text: qty ? `Bulto ${qty[0]} de ${qty[1]}` : `Leído: ${text}`, type: 'qty', debugImg: sourceUrl });
-        } else {
-          // Fix: cleanAmazonRef only takes 1 argument, corrected call on line 95
+          setTestResult({ text: qty ? `Bulto ${qty[0]} de ${qty[1]}` : `Bruto: ${text}`, type: 'qty', debugImg: res });
+        }
+      } else if (mode === 'ocr') {
+        const res = await cropImage(pageData.imageUrl, { x: area.x / 100, y: area.y / 100, w: area.w / 100, h: area.h / 100 }, imageRotation, 'ultra-sharp');
+        if (typeof res !== 'string') {
+          const text = await performCharacterOCR(res.chars);
           const cleaned = cleanAmazonRef(text);
-          setTestResult({ text: cleaned || `Bruto: ${text}`, type: 'ocr', debugImg: sourceUrl });
+          setTestResult({ text: cleaned || `Bruto: ${text}`, type: 'ocr', debugImg: res.strip });
         }
       } else {
         const resBC = await scanDataMatrix(pageData.imageUrl, { x: area.x / 100, y: area.y / 100, w: area.w / 100, h: area.h / 100 }, imageRotation);
@@ -212,7 +211,6 @@ const LabelConfigurator: React.FC<LabelConfiguratorProps> = ({ pageData, onSave,
       </aside>
 
       <div className="flex-1 bg-black overflow-hidden flex justify-center items-center p-8 relative">
-        {/* Contenedor principal con relación de aspecto EXACTA */}
         <div 
           ref={containerRef} 
           className="relative bg-white shadow-[0_0_80px_rgba(0,0,0,0.9)] overflow-hidden transition-all duration-300" 
@@ -221,7 +219,6 @@ const LabelConfigurator: React.FC<LabelConfiguratorProps> = ({ pageData, onSave,
             height: `${visualH}px`,
           }}
         >
-          {/* Imagen fondo con transformación limpia */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <img 
                src={pageData.imageUrl} 
@@ -236,7 +233,6 @@ const LabelConfigurator: React.FC<LabelConfiguratorProps> = ({ pageData, onSave,
              />
           </div>
 
-          {/* Capa de interacción 1:1 con el contenedor visual. Aquí las coordenadas % son infalibles. */}
           <div className="absolute inset-0 z-50">
              <div className={`absolute border-2 border-yellow-500 bg-yellow-400/10 cursor-move ${activeZone === 'barcode' ? 'block' : 'opacity-40'}`} style={{ left: `${barcodeArea.x}%`, top: `${barcodeArea.y}%`, width: `${barcodeArea.w}%`, height: `${barcodeArea.h}%` }} onMouseDown={(e) => startDragging(e, 'barcode')}>
                 <div className="absolute -bottom-1.5 -right-1.5 w-4 h-4 bg-yellow-500 cursor-nwse-resize rounded-full border-2 border-white shadow-lg" onMouseDown={(e) => startResizing(e, 'barcode')} />
